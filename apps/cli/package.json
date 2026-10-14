@@ -1,0 +1,44 @@
+{
+  "name": "@blastin-dev/clocktopus-cli",
+  "version": "0.7.1",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "clocktopus": "./dist/bin/clocktopus.js"
+  },
+  "files": [
+    "dist",
+    "claude-plugin"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint",
+    "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
+    "format:fix": "prettier --write . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.8.1",
+    "commander": "^13.0.0",
+    "conf": "^13.0.0",
+    "date-fns": "catalog:date-fns",
+    "smol-toml": "^1.8.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@repo/cli-contract": "workspace:*",
+    "@repo/eslint-config": "workspace:*",
+    "@repo/prettier-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "catalog:node",
+    "eslint": "catalog:",
+    "eslint-plugin-import-x": "^4.16.1",
+    "tsdown": "^0.23.1",
+    "typescript": "catalog:",
+    "vitest": "catalog:vitest",
+    "yaml": "^2.9.1"
+  },
+  "prettier": "@repo/prettier-config"
+}

@@ -1,0 +1,14 @@
+{
+  "name": "clocktopus-cli-workspace",
+  "private": true,
+  "description": "The Clocktopus CLI and the packages it builds from",
+  "scripts": {
+    "build": "pnpm -r build",
+    "check-types": "pnpm -r check-types",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "format": "pnpm -r format"
+  },
+  "license": "MIT",
+  "packageManager": "pnpm@12.3.4"
+}

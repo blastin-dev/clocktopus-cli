@@ -1,0 +1,9 @@
+{
+  "extends": "@repo/typescript-config/internal-package.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "."
+  },
+  "include": ["src/**/*.ts", "bin/**/*.ts", "tsdown.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

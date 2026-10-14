@@ -1,0 +1,8 @@
+{
+  "name": "clocktopus",
+  "displayName": "Clocktopus",
+  "description": "Note tasks for later, start work through to a pull request, refine tasks until an agent can take them, and break goals into tasks, through the Clocktopus MCP server.",
+  "author": { "name": "Blastin", "url": "https://clocktopus.app" },
+  "homepage": "https://clocktopus.app/docs/mcp-server",
+  "version": "0.0.0"
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@repo/cli-contract",
+  "version": "0.7.1",
+  "license": "MIT",
+  "description": "What the Clocktopus CLI and server exchange: wire schemas and the parsing rules both sides apply",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "lint": "eslint",
+    "check-types": "tsc --noEmit",
+    "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
+    "format:fix": "prettier --write . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@repo/prettier-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:vitest"
+  },
+  "prettier": "@repo/prettier-config"
+}
