@@ -2,37 +2,16 @@ packages:
   - apps/*
   - packages/*
 
-# Which dependencies may run install scripts. `true` is the old
-# `onlyBuiltDependencies` (this package needs its native build); `false` is the
-# old `ignoredBuiltDependencies` (it has a build script we deliberately skip —
-# the entry exists to silence the warning, not to enable anything). Anything not
-# listed is blocked and warned about, which is how a new one gets noticed.
-#
-# One map since pnpm 11, where the two list settings were removed outright
-# rather than deprecated.
 allowBuilds:
   "@tailwindcss/oxide": true
   aws-crt: true
   aws-sdk: false
   esbuild: false
-  # pnpm pins its own binary in the lockfile since v12 and unpacks the native
-  # one from an install script. Blocked, it still runs — as JavaScript on Node,
-  # slower, and it says so on every command.
   pnpm: true
   protobufjs: true
   sharp: false
   unrs-resolver: true
 
-# pnpm refuses packages published within `minimumReleaseAge` (24h by default
-# since v11), which is a guard against a compromised publish being pulled in
-# before anyone notices. It is worth keeping, so this list stays as short as it
-# can be — an entry exempts a package name at every version, forever.
-#
-# `nitro-nightly` is here because the guard cannot mean anything for it: it is a
-# nightly channel, tracked at `@latest` by `apps/web` (TanStack Start needs
-# nitro v3, published only as nightlies), so a freshly resolved build is always
-# hours old. Nothing else belongs here just for being new — a normal package
-# tripping this ages out by itself within a day.
 minimumReleaseAgeExclude:
   - nitro-nightly
 
@@ -42,9 +21,6 @@ catalog:
   prettier: 3.6.0
   sst: 4.14.1
   typescript: 5.9.2
-  # Must satisfy better-auth's `zod ^4.3.6`; a lower version installs a second
-  # nested zod copy whose named exports the prod bundle can't reconcile (the org
-  # plugin's `z.union` becomes `(void 0)` → auth chunk crashes at load).
   zod: 4.4.3
 
 catalogs:
@@ -65,42 +41,11 @@ catalogs:
     "@vitest/ui": ^4.1.5
     vitest: ^4.1.5
 
-# Deliberately NOT `injectWorkspacePackages: true`. Injection hard-copies a
-# workspace package into node_modules instead of symlinking it, and the copy is
-# only refreshed by a full install — so an edit to `packages/core` stayed
-# invisible at runtime while type-checking (which resolves through the
-# workspace) kept passing. No workspace package here declares peer dependencies,
-# which is the only thing injection buys, and `nodeLinker: hoisted` flattens
-# everything into one root `node_modules` anyway.
-
-# Belt and braces: every internal dependency already uses the `workspace:`
-# protocol, which links regardless of this. It stays so that a plain semver
-# range on an internal package resolves locally rather than reaching for the
-# registry and failing — the default is `false`.
 linkWorkspacePackages: true
 
-# A flat `node_modules` with no symlinks, which is what the serverless bundler
-# needs: SST/esbuild traces the Lambda handlers' dependencies from disk, and the
-# isolated default's `node_modules/.pnpm` symlink farm is one of the cases pnpm
-# itself names for choosing this. Not a legacy setting — `hoisted` is fully
-# supported; it is only the *place* it is configured that moved.
 nodeLinker: hoisted
 
-# Security / compatibility pins applied to transitive dependencies.
-# NOTE: these live here, not under a `pnpm` field in package.json — pnpm 10
-# no longer reads that field and silently ignores it. Same rule, same silence,
-# for `.npmrc`: pnpm 11 reads only auth and registry settings from it, so every
-# setting in this file has to stay in this file.
 overrides:
-  # Not a security pin like the rest of this block: srvx 1.0.4 landed hours
-  # before `minimumReleaseAge` began being enforced, so it blocks every command
-  # until it ages out. 1.0.3 is the same line, four days older, already past the
-  # guard.
-  #
-  # Scoped to `crossws>` deliberately. Bare `srvx:` would also rewrite the
-  # `0.11.x` that `h3` depends on directly — two majors up, under the server
-  # runtime, for no reason. Only the `crossws` optional peer (range `>=0.11.5`)
-  # is the one that resolved young.
   crossws>srvx: 1.0.3
   protobufjs: ">=7.5.5"
   defu: ">=6.1.5"
