@@ -74,8 +74,14 @@ export function findTaskKeyReference(
 
 // The key must start a path segment, or `feature/add-oauth-2` mints `OAUTH-2`.
 // Purely numeric segments are rejected: `release/2` is a version, `hotfix/2024` a
-// year.
-const BRANCH_SEGMENT_TASK_KEY = /^([A-Za-z][A-Za-z0-9]*-\d+)(?:[-_.]|$)/;
+// year. A dot before a digit makes it a version too: `release-1.0` is no
+// `RELEASE-1`.
+const BRANCH_SEGMENT_TASK_KEY =
+  /^([A-Za-z][A-Za-z0-9]*-\d+)(?:[-_]|\.(?!\d)|$)/;
+
+// Dependency bots name branches `<bot>/<ecosystem>/<package>-<version>`, so
+// `dependabot/github_actions/actions/checkout-7` would read as `CHECKOUT-7`.
+const BOT_BRANCH = /^(?:dependabot|renovate)\//;
 
 export function extractTaskKeyFromBranch(
   branch: string | null | undefined,
@@ -86,7 +92,7 @@ export function extractTaskKeyFromBranch(
 function findBranchTaskKey(
   branch: string | null | undefined,
 ): { key: string; start: number; end: number } | null {
-  if (!branch) return null;
+  if (!branch || BOT_BRANCH.test(branch)) return null;
 
   let start = 0;
   for (const segment of branch.split("/")) {

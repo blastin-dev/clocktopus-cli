@@ -325,6 +325,14 @@ describe("findMergeCommitTaskKeyReference", () => {
     ).toBeNull();
   });
 
+  it("finds nothing in a dependency bot's merge", () => {
+    expect(
+      spanOf(
+        "Merge pull request #12 from acme-co/dependabot/github_actions/actions/checkout-7\n\nci: Bump actions/checkout from 4 to 7",
+      ),
+    ).toBeNull();
+  });
+
   it("finds nothing in a commit that is not a pull request merge", () => {
     expect(spanOf("feat(bla-12): add filter")).toBeNull();
     expect(spanOf("Merge branch 'develop' into dana/bla-12-x")).toBeNull();

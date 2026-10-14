@@ -38,6 +38,25 @@ describe("extractTaskKeyFromBranch", () => {
     expect(extractTaskKeyFromBranch("hotfix/2024")).toBeNull();
   });
 
+  it("ignores a key followed by a dotted version", () => {
+    expect(extractTaskKeyFromBranch("release/release-1.0")).toBeNull();
+    expect(extractTaskKeyFromBranch("hotfix/hotfix-2.3.1")).toBeNull();
+    expect(extractTaskKeyFromBranch("release/release-1.0/bla-12-x")).toBe(
+      "BLA-12",
+    );
+  });
+
+  it("ignores dependency bot branches", () => {
+    expect(
+      extractTaskKeyFromBranch("dependabot/github_actions/actions/checkout-7"),
+    ).toBeNull();
+    expect(
+      extractTaskKeyFromBranch("dependabot/npm_and_yarn/lodash-4"),
+    ).toBeNull();
+    expect(extractTaskKeyFromBranch("renovate/react-19")).toBeNull();
+    expect(extractTaskKeyFromBranch("dana/renovate/bla-12")).toBe("BLA-12");
+  });
+
   it("returns null for branches carrying no key", () => {
     expect(extractTaskKeyFromBranch("main")).toBeNull();
     expect(extractTaskKeyFromBranch("develop")).toBeNull();
