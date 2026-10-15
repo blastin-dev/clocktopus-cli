@@ -2,8 +2,8 @@ import { execFileSync } from "node:child_process";
 
 import { parseGitRemotes } from "./git-remotes.js";
 
-// The raw remote goes to the server unparsed: the CLI cannot import `@repo/core`, which
-// owns the definition of a supported remote.
+// Remotes go to the server unparsed, without their credentials: the CLI cannot
+// import `@repo/core`, which owns the definition of a supported remote.
 
 function git(cwd: string, args: string[]): string | undefined {
   try {

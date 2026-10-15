@@ -76,4 +76,21 @@ describe("parseGitRemotes", () => {
 
     expect(parseGitRemotes(lines.join("\n"))).toHaveLength(20);
   });
+
+  it("sends no remote with its credentials, and merges it with the clean spelling", () => {
+    const urls = parseGitRemotes(
+      [
+        "origin\thttps://jordan:ghp_fake0token1@github.com/acme-co/portal.git (fetch)",
+        "origin\thttps://github.com/acme-co/portal.git (push)",
+        "mirror\thttps://ghp_fake0token1@git.example.test/acme/portal.git (fetch)",
+        "mirror\thttps://ghp_fake0token1@git.example.test/acme/portal.git (push)",
+      ].join("\n"),
+    );
+
+    expect(urls).toEqual([
+      "https://github.com/acme-co/portal.git",
+      "https://git.example.test/acme/portal.git",
+    ]);
+    expect(urls.join(" ")).not.toContain("ghp_fake0token1");
+  });
 });

@@ -1,3 +1,5 @@
+import { stripRemoteCredentials } from "@repo/cli-contract/remote-url";
+
 import type { Checkout, InitDeps } from "./types.js";
 
 export type ParsedRemote = {
@@ -48,7 +50,9 @@ export function readCheckout(deps: Pick<InitDeps, "run">): Checkout {
     const result = deps.run("git", args);
     return result.ok ? result.stdout.trim() || null : null;
   };
-  const remote = output(["remote", "get-url", "origin"]);
+  const origin = output(["remote", "get-url", "origin"]);
+  // Every request `init` makes names the repository by this remote.
+  const remote = origin && stripRemoteCredentials(origin);
   return {
     remote,
     repository: parseRemote(remote),

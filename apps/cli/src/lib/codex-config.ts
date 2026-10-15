@@ -11,19 +11,31 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
+import type { AgentCredentials } from "./credentials-file.js";
 import { contextCommandFor, isContextHookCommand } from "./context-hook.js";
+import {
+  readCredentialsFile,
+  removeCredentialsFile,
+  writeCredentialsFile,
+} from "./credentials-file.js";
 import { MCP_SERVER_NAME, mcpServerUrl } from "./mcp-server.js";
 
 // `config.toml` is hand-annotated and a TOML round trip drops comments, so only the
 // tables in `OWNED_TABLES` are spliced textually and `writeCodexConfig` refuses the
 // write if anything outside them changed.
+//
+// Spend is read from the session's rollout file by the hook (`codex-rollout.ts`), not
+// sent by Codex's own `[otel]` log exporter, whose `codex.tool_result` events carry
+// tool output. Setup writes no `[otel]` and removes the exporter older setups wrote.
 
 export const CODEX_CONFIG_FILENAME = "config.toml";
 export const CODEX_HOOKS_FILENAME = "hooks.json";
+export const CODEX_CREDENTIALS_FILENAME = "clocktopus.json";
 
-// Codex's log exporter POSTs to the literal URL, so this is appended on write and
-// stripped on read.
-export const CODEX_LOGS_PATH = "/v1/logs";
+// The path older setups appended to the `[otel]` exporter's endpoint.
+const CODEX_LOGS_PATH = "/v1/logs";
+
+const INGEST_TOKEN_PREFIX = "ctop_agt_";
 
 // Seconds. Codex clamps SessionEnd to 3 and warns on every session start when it is
 // set higher.
@@ -58,6 +70,10 @@ export function codexConfigPath(): string {
 
 export function codexHooksPath(): string {
   return join(codexConfigDir(), CODEX_HOOKS_FILENAME);
+}
+
+export function codexCredentialsPath(): string {
+  return join(codexConfigDir(), CODEX_CREDENTIALS_FILENAME);
 }
 
 export function readCodexConfig(path = codexConfigPath()): {
@@ -95,36 +111,13 @@ function asTable(value: unknown): TomlTable {
     : {};
 }
 
-/** The `[otel]` keys `clocktopus agent setup` owns — and the only ones it removes. */
+// The `[otel]` keys older setups wrote, and the only ones removed.
 const OWNED_OTEL_KEYS = ["exporter", "log_user_prompt"] as const;
 
-export function buildCodexOtel(input: {
-  token: string;
-  endpoint: string;
-}): TomlTable {
-  const endpoint = `${input.endpoint.replace(/\/$/, "")}${CODEX_LOGS_PATH}`;
-
-  return {
-    // Codex defaults to `binary`, which the receiver rejects with 415.
-    exporter: {
-      "otlp-http": {
-        endpoint,
-        protocol: "json",
-        headers: { Authorization: `Bearer ${input.token}` },
-      },
-    },
-    // Does not cover tool output; the receiver's allowlist is what keeps content out.
-    log_user_prompt: false,
-  };
-}
-
-// Dotted paths of the tables setup writes.
+// Dotted paths of the tables setup edits.
 const OWNED_TABLES = [["otel"], ["mcp_servers", MCP_SERVER_NAME]] as const;
 
-export function spliceOtelSection(
-  text: string,
-  otel: TomlTable | null,
-): string {
+function spliceOtelSection(text: string, otel: TomlTable | null): string {
   return spliceTable(text, ["otel"], otel);
 }
 
@@ -251,20 +244,16 @@ function withoutOwnedTables(config: TomlTable): TomlTable {
   return copy;
 }
 
-export function readCodexTelemetry(path = codexConfigPath()): {
-  path: string;
-  exists: boolean;
-  modifiedAt: Date | null;
+// The `[otel]` log exporter an older `agent setup` wrote: ours when it carries an
+// ingest token. While it is in place Codex still sends spend itself, so the hook
+// does not (`reportCodexSpend`).
+export function readCodexLogExporter(config: TomlTable): {
+  ours: boolean;
   token: string | null;
-  /** The receiver base, without `CODEX_LOGS_PATH`. */
+  /** The receiver base, without `/v1/logs`. */
   endpoint: string | null;
-  protocol: string | null;
-  logUserPrompt: boolean | null;
 } {
-  const { exists, modifiedAt, config } = readCodexConfig(path);
-
-  const otel = asTable(config.otel);
-  const http = asTable(asTable(otel.exporter)["otlp-http"]);
+  const http = asTable(asTable(asTable(config.otel).exporter)["otlp-http"]);
   const headers = asTable(http.headers);
 
   const authorization =
@@ -273,38 +262,73 @@ export function readCodexTelemetry(path = codexConfigPath()): {
       : typeof headers.authorization === "string"
         ? headers.authorization
         : null;
+  const token = authorization?.replace(/^Bearer\s+/i, "").trim() || null;
+  const ours = token?.startsWith(INGEST_TOKEN_PREFIX) ?? false;
 
   const rawEndpoint = typeof http.endpoint === "string" ? http.endpoint : null;
 
   return {
-    path,
-    exists,
-    modifiedAt,
-    token: authorization?.replace(/^Bearer\s+/i, "").trim() || null,
-    endpoint: rawEndpoint
-      ? rawEndpoint.replace(new RegExp(`${CODEX_LOGS_PATH}/?$`), "")
-      : null,
-    protocol: typeof http.protocol === "string" ? http.protocol : null,
-    logUserPrompt:
-      typeof otel.log_user_prompt === "boolean" ? otel.log_user_prompt : null,
+    ours,
+    token: ours ? token : null,
+    endpoint:
+      ours && rawEndpoint
+        ? rawEndpoint.replace(new RegExp(`${CODEX_LOGS_PATH}/?$`), "")
+        : null,
   };
 }
 
-export function applyCodexOtel(
-  current: { text: string; config: TomlTable },
-  input: { token: string; endpoint: string },
-): string {
-  const merged: TomlTable = {
-    ...asTable(current.config.otel),
-    ...buildCodexOtel(input),
+// The credentials file, else the token an older setup left in the `[otel]` exporter,
+// so the hook keeps reporting until setup runs again.
+export function readCodexCredentials(): {
+  path: string;
+  modifiedAt: Date | null;
+  token: string | null;
+  endpoint: string | null;
+  legacyExporter: boolean;
+} {
+  const file = readCredentialsFile(codexCredentialsPath());
+  let exporter: ReturnType<typeof readCodexLogExporter> = {
+    ours: false,
+    token: null,
+    endpoint: null,
   };
-  return spliceOtelSection(current.text, merged);
+  try {
+    exporter = readCodexLogExporter(readCodexConfig().config);
+  } catch {
+    // An unparseable config.toml is reported by `read`; the credentials file stands.
+  }
+
+  return {
+    path: file.path,
+    modifiedAt: file.modifiedAt,
+    token: file.credentials?.token ?? exporter.token,
+    endpoint:
+      file.credentials?.endpoint.replace(/\/$/, "") ?? exporter.endpoint,
+    legacyExporter: exporter.ours,
+  };
 }
 
+export function writeCodexCredentials(
+  credentials: AgentCredentials,
+  path = codexCredentialsPath(),
+): void {
+  writeCredentialsFile(credentials, path);
+}
+
+export function removeCodexCredentials(path = codexCredentialsPath()): boolean {
+  return removeCredentialsFile(path);
+}
+
+// Leaves `[otel]` alone unless its exporter is ours, so a user's own exporter to
+// another collector survives.
 export function removeCodexOtel(current: { text: string; config: TomlTable }): {
   nextText: string;
   removedKeys: string[];
 } {
+  if (!readCodexLogExporter(current.config).ours) {
+    return { nextText: current.text, removedKeys: [] };
+  }
+
   const otel = { ...asTable(current.config.otel) };
   const removedKeys: string[] = [];
 

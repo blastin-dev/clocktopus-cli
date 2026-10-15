@@ -2,6 +2,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { resolve as resolvePath } from "node:path";
 
 import type { AgentAdapter, AgentProviderId } from "../../lib/agents.js";
+import type { HookDryRun } from "../../lib/hook-request.js";
 import { maskToken, resolveAgentCredentials } from "../../lib/agent-config.js";
 import {
   clearStartState,
@@ -16,7 +17,13 @@ import {
   parseReflogCommits,
 } from "../../lib/declared-commits.js";
 import { getRepositoryRemotes } from "../../lib/git.js";
+import { homeRelativePath } from "../../lib/home-relative-path.js";
 import { readHookPayload } from "../../lib/hook-payload.js";
+import {
+  noteHookDryRun,
+  postHookRequest,
+  readHookDryRun,
+} from "../../lib/hook-request.js";
 
 // Every agent pipes hook JSON to stdin and nothing in it names the sender,
 // hence `--provider`. It is the only source of `cwd` in the pipeline, so without this
@@ -26,10 +33,12 @@ import { readHookPayload } from "../../lib/hook-payload.js";
 // always exit 0.
 //
 // Codex skips an async SessionStart on 0.147 and clamps SessionEnd to 3s, less than
-// `TIMEOUT_MS`, so hosts without `hostRunsHooksAsync` get no `async` key and this
+// `TIMEOUT_MS` in `lib/hook-request.ts`, so hosts without `hostRunsHooksAsync` get no `async` key and this
 // command backgrounds itself through `detachSelf`.
-
-const TIMEOUT_MS = 4000;
+//
+// A dry run (`--dry-run`, `CLOCKTOPUS_HOOK_DRY_RUN`) prints each request instead of
+// sending it, runs in the foreground so the output is not lost with a detached
+// child, and writes no state a real run would.
 
 // A state file outlives SessionEnd only when the session died without one; this sits
 // well past a working day because long sessions are normal.
@@ -42,6 +51,7 @@ type SessionBody = {
   provider: AgentProviderId;
   session_id: string;
   hook_event_name: string;
+  // Home-relative (`homeRelativePath`); git and the state file keep the absolute path.
   cwd: string;
   source?: string;
   reason?: string;
@@ -105,40 +115,6 @@ function git(cwd: string, args: string[]): string | undefined {
   }
 }
 
-async function post(
-  endpoint: string,
-  token: string,
-  body: SessionBody,
-): Promise<{ status: number | null; error: string | null }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-  try {
-    const response = await fetch(
-      `${endpoint.replace(/\/$/, "")}/v1/agent-session`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      },
-    );
-
-    return { status: response.status, error: null };
-  } catch (error) {
-    // Recorded for `agent doctor` rather than surfaced to the session.
-    return {
-      status: null,
-      error: error instanceof Error ? error.message : "request failed",
-    };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 // Closes sessions that never received a SessionEnd, which otherwise keep a null
 // `ended_at` and `git_head_after`. It runs when the next session starts, possibly a
 // day later, so it sends its own `ended_at`.
@@ -147,7 +123,12 @@ async function sweepAbandonedSessions(
   token: string,
   currentSessionId: string,
   fallbackProvider: AgentProviderId,
+  dryRun: HookDryRun | null,
 ): Promise<void> {
+  const clear = (sessionId: string) => {
+    if (!dryRun) clearStartState(sessionId);
+  };
+
   let swept = 0;
 
   for (const { sessionId, ageMs, lastActivityAt } of listStartStates()) {
@@ -161,48 +142,65 @@ async function sweepAbandonedSessions(
     // Without the originating checkout the SHA would resolve against an unrelated
     // repository.
     if (!state?.cwd) {
-      clearStartState(sessionId);
+      clear(sessionId);
       continue;
     }
 
     // Already ended; sweeping would replace its real end with this moment's HEAD.
     if (state.closed) {
-      clearStartState(sessionId);
+      clear(sessionId);
       continue;
     }
 
+    // A session that never reached SessionEnd has spend its last report missed.
+    await AGENTS.find(
+      (agent) => agent.provider === state.provider,
+    )?.reportSpend?.({
+      endpoint,
+      token,
+      sessionId,
+      transcriptPath: null,
+      dryRun,
+    });
+
     const head = git(state.cwd, ["rev-parse", "HEAD"]);
     if (head) {
-      await post(endpoint, token, {
-        // The agent that opened the session, not the one sweeping it, or the end lands
-        // on a duplicate row under the wrong provider.
-        provider: readProvider(state.provider) ?? fallbackProvider,
-        session_id: sessionId,
-        hook_event_name: "SessionEnd",
-        cwd: state.cwd,
-        reason: "abandoned",
-        // The receiver keeps a telemetry-stamped end over this one.
-        ended_at: lastActivityAt.toISOString(),
-        // No `git_branch`: the receiver lets any non-null value win, and the current
-        // branch would overwrite the one SessionStart recorded.
-        ...remotesFor(state.cwd),
-        ...declaredShasFor(
-          // Spread so the `state.cwd` guard above narrows.
-          sweptCommits(
-            {
-              cwd: state.cwd,
-              provider: state.provider,
-              startedAt: state.startedAt,
-            },
-            lastActivityAt,
+      await postHookRequest({
+        endpoint,
+        path: "/v1/agent-session",
+        token,
+        dryRun,
+        body: {
+          // The agent that opened the session, not the one sweeping it, or the end lands
+          // on a duplicate row under the wrong provider.
+          provider: readProvider(state.provider) ?? fallbackProvider,
+          session_id: sessionId,
+          hook_event_name: "SessionEnd",
+          cwd: homeRelativePath(state.cwd),
+          reason: "abandoned",
+          // The receiver keeps a telemetry-stamped end over this one.
+          ended_at: lastActivityAt.toISOString(),
+          // No `git_branch`: the receiver lets any non-null value win, and the current
+          // branch would overwrite the one SessionStart recorded.
+          ...remotesFor(state.cwd),
+          ...declaredShasFor(
+            // Spread so the `state.cwd` guard above narrows.
+            sweptCommits(
+              {
+                cwd: state.cwd,
+                provider: state.provider,
+                startedAt: state.startedAt,
+              },
+              lastActivityAt,
+            ),
           ),
-        ),
-        git_head_before: state.sha,
-        git_head_after: head,
+          git_head_before: state.sha,
+          git_head_after: head,
+        } satisfies SessionBody,
       });
     }
 
-    clearStartState(sessionId);
+    clear(sessionId);
   }
 }
 
@@ -246,18 +244,26 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-async function run(agent: AgentAdapter, detached: boolean): Promise<void> {
+async function run(
+  agent: AgentAdapter,
+  detached: boolean,
+  dryRun: HookDryRun | null,
+): Promise<void> {
   const { token, endpoint } = resolveAgentCredentials(agent.id);
   if (!token || !endpoint) {
+    noteHookDryRun(dryRun, "no ingest token or endpoint, so nothing is sent");
     return;
   }
 
   const raw = await readStdin();
-  if (!raw) return;
+  if (!raw) {
+    noteHookDryRun(dryRun, "no hook payload on stdin, so nothing is sent");
+    return;
+  }
 
   // After the empty-stdin check: `agent doctor` probes the hook with no payload, and
   // that probe must not leave a process behind.
-  if (!agent.hostRunsHooksAsync && !detached) {
+  if (!agent.hostRunsHooksAsync && !detached && !dryRun) {
     if (await detachSelf(agent.provider, raw)) return;
   }
 
@@ -265,12 +271,37 @@ async function run(agent: AgentAdapter, detached: boolean): Promise<void> {
   try {
     input = JSON.parse(raw);
   } catch {
+    noteHookDryRun(dryRun, "the hook payload is not JSON, so nothing is sent");
     return;
   }
 
-  const { sessionId, cwd, eventName, durationMs, source, reason } =
-    readHookPayload(input, process.env.CURSOR_PROJECT_DIR);
-  if (!sessionId || !cwd) return;
+  const {
+    sessionId,
+    cwd,
+    eventName,
+    durationMs,
+    source,
+    reason,
+    transcriptPath,
+  } = readHookPayload(input, process.env.CURSOR_PROJECT_DIR);
+  if (!sessionId || !cwd) {
+    noteHookDryRun(
+      dryRun,
+      "the hook payload has no session id or cwd, so nothing is sent",
+    );
+    return;
+  }
+
+  // Before the session's own event: a spend report sets the session's end to its last
+  // turn, which SessionEnd must then overwrite, not the other way round.
+  await agent.reportSpend?.({
+    endpoint,
+    token,
+    sessionId,
+    transcriptPath,
+    dryRun,
+  });
+
   const isSessionStart = eventName === "SessionStart";
 
   // HEAD is `git_head_before` at SessionStart and `git_head_after` at SessionEnd, so
@@ -281,7 +312,7 @@ async function run(agent: AgentAdapter, detached: boolean): Promise<void> {
     provider: agent.provider,
     session_id: sessionId,
     hook_event_name: eventName,
-    cwd,
+    cwd: homeRelativePath(cwd),
     source,
     reason,
     ...remotesFor(cwd),
@@ -297,7 +328,7 @@ async function run(agent: AgentAdapter, detached: boolean): Promise<void> {
   if (isSessionStart) {
     // SessionStart fires again on `compact` and `resume`; rewriting would move
     // `startedAt` past commits the session already made.
-    if (head && !readStartState(sessionId))
+    if (head && !dryRun && !readStartState(sessionId))
       writeStartState(sessionId, {
         sha: head,
         cwd,
@@ -314,7 +345,9 @@ async function run(agent: AgentAdapter, detached: boolean): Promise<void> {
     // A host whose SessionEnd repeats keeps the file, anchored at the original start, so
     // later turns still declare their commits; the rewrite also refreshes the mtime
     // the sweep ages sessions by.
-    if (agent.hostRepeatsSessionEnd && before) {
+    if (dryRun) {
+      // Leaves the start for the real SessionEnd.
+    } else if (agent.hostRepeatsSessionEnd && before) {
       writeStartState(sessionId, {
         sha: before,
         cwd,
@@ -330,29 +363,44 @@ async function run(agent: AgentAdapter, detached: boolean): Promise<void> {
 
   // `transcript_path` is never forwarded: it points at the conversation itself, which
   // Clocktopus does not collect.
-  const result = await post(endpoint, token, body);
-
-  recordLastRun({
-    at: new Date().toISOString(),
-    event: eventName,
-    provider: agent.provider,
-    sessionId,
+  const result = await postHookRequest({
     endpoint,
-    tokenPrefix: maskToken(token),
-    status: result.status,
-    error: result.error,
-    repository: body.repository_url ?? null,
+    path: "/v1/agent-session",
+    token,
+    body,
+    dryRun,
   });
+
+  if (!dryRun) {
+    recordLastRun({
+      at: new Date().toISOString(),
+      event: eventName,
+      provider: agent.provider,
+      sessionId,
+      endpoint,
+      tokenPrefix: maskToken(token),
+      status: result.status,
+      error: result.error,
+      repository: body.repository_url ?? null,
+    });
+  }
 
   // After this session's own event, so the sweep's requests cannot delay it.
   if (isSessionStart) {
-    await sweepAbandonedSessions(endpoint, token, sessionId, agent.provider);
+    await sweepAbandonedSessions(
+      endpoint,
+      token,
+      sessionId,
+      agent.provider,
+      dryRun,
+    );
   }
 }
 
 export async function hookCommand(options: {
   provider?: string;
   detached?: boolean;
+  dryRun?: boolean | string;
 }): Promise<void> {
   try {
     // A missing or unknown `--provider` falls back to Claude Code rather than dropping
@@ -360,7 +408,11 @@ export async function hookCommand(options: {
     const agent =
       AGENTS.find((candidate) => candidate.provider === options.provider) ??
       AGENTS[0]!;
-    await run(agent, options.detached === true);
+    await run(
+      agent,
+      options.detached === true,
+      readHookDryRun(options.dryRun, process.env.CLOCKTOPUS_HOOK_DRY_RUN),
+    );
   } catch {
     // Silent: see the host contract at the top of this file.
   }

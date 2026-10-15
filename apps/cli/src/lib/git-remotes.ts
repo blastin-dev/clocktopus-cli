@@ -1,3 +1,5 @@
+import { stripRemoteCredentials } from "@repo/cli-contract/remote-url";
+
 // Every remote is reported because on a fork `origin` is the developer's copy while
 // webhooks arrive under the upstream; the receiver decides which one wins.
 
@@ -5,6 +7,7 @@
 const MAX_REMOTES = 20;
 
 // Deduplicated, `origin` first: the hook sends the first entry as `repository_url`.
+// Each URL loses its credentials here, so nothing that reads remotes sends one.
 export function parseGitRemotes(output: string | undefined): string[] {
   if (!output?.trim()) return [];
 
@@ -19,7 +22,7 @@ export function parseGitRemotes(output: string | undefined): string[] {
     if (!name || !url) continue;
 
     const key = `${name}:${direction}`;
-    if (!byName.has(key)) byName.set(key, url);
+    if (!byName.has(key)) byName.set(key, stripRemoteCredentials(url));
   }
 
   const entries = [...byName.entries()];

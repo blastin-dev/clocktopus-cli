@@ -2,6 +2,7 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   statSync,
@@ -17,8 +18,23 @@ import { contextCommandFor, isContextHookCommand } from "./context-hook.js";
 
 export const SETTINGS_FILENAME = "settings.json";
 
+// Claude Code's flags for exporting prompt text, response text, tool input and
+// output, and whole API bodies. It reads `1`, `true`, `yes` and `on` as on (and
+// `file:<dir>` for raw bodies), so setup writes `0`; the user settings `env`
+// replaces a value exported in the shell, and only managed settings override it.
+export const CONTENT_FLAG_KEYS = [
+  "OTEL_LOG_USER_PROMPTS",
+  "OTEL_LOG_ASSISTANT_RESPONSES",
+  "OTEL_LOG_TOOL_DETAILS",
+  "OTEL_LOG_TOOL_CONTENT",
+  "OTEL_LOG_RAW_API_BODIES",
+] as const;
+
+const CONTENT_FLAG_OFF = "0";
+
 /** Env keys `clocktopus agent setup` owns — and the only ones it removes. */
 export const TELEMETRY_ENV_KEYS = [
+  ...CONTENT_FLAG_KEYS,
   "CLAUDE_CODE_ENABLE_TELEMETRY",
   "OTEL_METRICS_EXPORTER",
   "OTEL_LOGS_EXPORTER",
@@ -148,7 +164,123 @@ export function buildTelemetryEnv(input: {
     // Read by `agent hook`, which inherits this env from the session.
     CLOCKTOPUS_INGEST_TOKEN: input.token,
     CLOCKTOPUS_OTEL_ENDPOINT: endpoint,
+    ...Object.fromEntries(
+      CONTENT_FLAG_KEYS.map((key) => [key, CONTENT_FLAG_OFF]),
+    ),
   };
+}
+
+export function isContentFlagOn(
+  key: (typeof CONTENT_FLAG_KEYS)[number],
+  value: unknown,
+): boolean {
+  if (typeof value !== "string") return false;
+  if (key === "OTEL_LOG_RAW_API_BODIES" && value.startsWith("file:")) {
+    return value.length > "file:".length;
+  }
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+export function contentFlagsOn(
+  sources: Array<{ source: string; env: Record<string, unknown> }>,
+) {
+  return sources.flatMap(({ source, env }) =>
+    CONTENT_FLAG_KEYS.filter((key) => isContentFlagOn(key, env[key])).map(
+      (key) => ({ key, value: String(env[key]), source, managed: false }),
+    ),
+  );
+}
+
+// The system directory of Claude Code's file-based managed settings. MDM
+// profiles, registry values and server-managed settings leave no file in it.
+export function managedSettingsDir(platform = process.platform): string {
+  if (platform === "darwin") return "/Library/Application Support/ClaudeCode";
+  if (platform === "win32") return "C:\\Program Files\\ClaudeCode";
+  return "/etc/claude-code";
+}
+
+// In the order Claude Code merges them: `managed-settings.json`, then every
+// `*.json` in `managed-settings.d/` alphabetically, hidden files skipped.
+export function managedSettingsFiles(dir = managedSettingsDir()): string[] {
+  const dropInDir = join(dir, "managed-settings.d");
+  let dropIns: string[] = [];
+  try {
+    dropIns = readdirSync(dropInDir)
+      .filter((name) => name.endsWith(".json") && !name.startsWith("."))
+      .sort()
+      .map((name) => join(dropInDir, name));
+  } catch {
+    // No drop-in directory, or one this user can't list.
+  }
+  return [join(dir, "managed-settings.json"), ...dropIns];
+}
+
+function envOf(settings: ClaudeSettings): Record<string, unknown> {
+  return settings.env &&
+    typeof settings.env === "object" &&
+    !Array.isArray(settings.env)
+    ? (settings.env as Record<string, unknown>)
+    : {};
+}
+
+// Each managed file's `env` merges key by key over the files before it, so a
+// flag is on only when the last file to set it turns it on. A file this user
+// can't read is skipped, as Claude Code skips it.
+function managedContentFlagsOn(dir: string) {
+  const setBy = new Map<string, { value: unknown; source: string }>();
+  const unreadable: string[] = [];
+  for (const path of managedSettingsFiles(dir)) {
+    let settings: ClaudeSettings;
+    try {
+      ({ settings } = readSettings(path));
+    } catch (error) {
+      if (error instanceof SettingsParseError) unreadable.push(path);
+      continue;
+    }
+    for (const [key, value] of Object.entries(envOf(settings))) {
+      setBy.set(key, { value, source: path });
+    }
+  }
+  const found = CONTENT_FLAG_KEYS.flatMap((key) => {
+    const set = setBy.get(key);
+    return set && isContentFlagOn(key, set.value)
+      ? [{ key, value: String(set.value), source: set.source, managed: true }]
+      : [];
+  });
+  return { found, unreadable };
+}
+
+// The environment this CLI runs in stands in for the one Claude Code is
+// launched from. A user settings file that fails to parse is reported by the
+// config check instead; a managed one is listed in `unreadable`. Project
+// settings are not read: Claude Code ignores a content flag set there unless
+// it turns the flag off.
+export function findContentFlagsOn(
+  path = settingsPath(),
+  environment: Record<string, unknown> = process.env,
+  managedDir = managedSettingsDir(),
+) {
+  const sources: Parameters<typeof contentFlagsOn>[0] = [
+    { source: "the environment", env: environment },
+  ];
+  try {
+    sources.push({ source: path, env: envOf(readSettings(path).settings) });
+  } catch (error) {
+    if (!(error instanceof SettingsParseError)) throw error;
+  }
+  const managed = managedContentFlagsOn(managedDir);
+  return {
+    found: [...contentFlagsOn(sources), ...managed.found],
+    unreadable: managed.unreadable,
+  };
+}
+
+export function describeContentFlags(
+  found: ReturnType<typeof findContentFlagsOn>["found"],
+): string {
+  return found
+    .map(({ key, value, source }) => `${key}=${value} in ${source}`)
+    .join("; ");
 }
 
 const HOOK_EVENTS = ["SessionStart", "SessionEnd"] as const;

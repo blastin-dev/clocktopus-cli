@@ -10,7 +10,7 @@ import { delimiter, join, resolve } from "node:path";
 
 import type { AgentId, AgentProviderId } from "./agents.js";
 import { readInstalledTelemetry, settingsPath } from "./claude-settings.js";
-import { codexConfigPath, readCodexTelemetry } from "./codex-config.js";
+import { codexCredentialsPath, readCodexCredentials } from "./codex-config.js";
 import {
   cursorCredentialsPath,
   readCursorCredentials,
@@ -19,8 +19,8 @@ import { opencodePluginPath, readOpencodePlugin } from "./opencode-config.js";
 
 // Claude Code applies `settings.json` `env` over the inherited shell environment, so the
 // environment wins; the source is reported so `doctor` can name the file that is winning.
-// Codex, OpenCode and Cursor inject nothing into the hook's environment, so their
-// config file is the source.
+// Codex, OpenCode and Cursor inject nothing into the hook's environment, so a file
+// setup writes is the source.
 
 export type CredentialSource = "environment" | "settings" | "none";
 
@@ -43,7 +43,7 @@ export function resolveAgentCredentials(
   let fileEndpoint: string | undefined;
   try {
     if (agent === "codex") {
-      const codex = readCodexTelemetry();
+      const codex = readCodexCredentials();
       fileToken = codex.token ?? undefined;
       fileEndpoint = codex.endpoint ?? undefined;
     } else if (agent === "opencode") {
@@ -75,7 +75,7 @@ export function resolveAgentCredentials(
         : "none",
     sourcePath:
       agent === "codex"
-        ? codexConfigPath()
+        ? codexCredentialsPath()
         : agent === "opencode"
           ? opencodePluginPath()
           : agent === "cursor"

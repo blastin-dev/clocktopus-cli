@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,7 +12,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   applyTelemetrySettings,
   buildTelemetryEnv,
+  CONTENT_FLAG_KEYS,
+  contentFlagsOn,
   CONTEXT_HOOK_TIMEOUT_SECONDS,
+  findContentFlagsOn,
+  isContentFlagOn,
+  managedSettingsDir,
+  managedSettingsFiles,
   readInstalledTelemetry,
   readSettings,
   removeTelemetrySettings,
@@ -385,6 +397,218 @@ describe("removeTelemetrySettings and the context hook", () => {
 
     expect(settings.hooks).toEqual({
       SessionStart: [{ hooks: [{ type: "command", command: "echo mine" }] }],
+    });
+  });
+});
+
+describe("content flags", () => {
+  it("writes every content flag as a value Claude Code reads as off", () => {
+    const env = buildTelemetryEnv(INSTALL);
+
+    for (const key of CONTENT_FLAG_KEYS) {
+      expect(env[key]).toBe("0");
+      expect(isContentFlagOn(key, env[key])).toBe(false);
+    }
+  });
+
+  it("turns off a content flag the user had on in settings", () => {
+    const settings = applyTelemetrySettings(
+      { env: { OTEL_LOG_USER_PROMPTS: "1", MY_OWN_VAR: "keep-me" } },
+      INSTALL,
+    );
+
+    expect(
+      contentFlagsOn([
+        { source: "settings", env: settings.env as Record<string, unknown> },
+      ]),
+    ).toEqual([]);
+    expect((settings.env as Record<string, string>).MY_OWN_VAR).toBe("keep-me");
+  });
+
+  it("removes the content flags on teardown", () => {
+    const { settings, removedEnvKeys } = removeTelemetrySettings(
+      applyTelemetrySettings(userSettings(), INSTALL),
+    );
+
+    expect(removedEnvKeys).toEqual(
+      expect.arrayContaining([...CONTENT_FLAG_KEYS]),
+    );
+    expect(settings.env).toEqual({ MY_OWN_VAR: "keep-me" });
+  });
+
+  it.each(["1", "true", "TRUE", " yes ", "on"])("reads %j as on", (value) => {
+    expect(isContentFlagOn("OTEL_LOG_TOOL_DETAILS", value)).toBe(true);
+  });
+
+  it.each(["0", "false", "no", "off", "", undefined])(
+    "reads %j as off",
+    (value) => {
+      expect(isContentFlagOn("OTEL_LOG_TOOL_DETAILS", value)).toBe(false);
+    },
+  );
+
+  it("reads a raw API body directory as on, and an empty one as off", () => {
+    expect(isContentFlagOn("OTEL_LOG_RAW_API_BODIES", "file:/tmp/bodies")).toBe(
+      true,
+    );
+    expect(isContentFlagOn("OTEL_LOG_RAW_API_BODIES", "file:")).toBe(false);
+    // Only the raw bodies flag takes a directory.
+    expect(isContentFlagOn("OTEL_LOG_USER_PROMPTS", "file:/tmp/x")).toBe(false);
+  });
+
+  describe("findContentFlagsOn", () => {
+    let dir: string;
+    let path: string;
+    let managedDir: string;
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), "clocktopus-content-flags-"));
+      path = join(dir, "settings.json");
+      managedDir = join(dir, "managed");
+    });
+
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    function writeManaged(name: string, contents: unknown) {
+      const target = join(managedDir, name);
+      mkdirSync(join(target, ".."), { recursive: true });
+      writeFileSync(
+        target,
+        typeof contents === "string" ? contents : JSON.stringify(contents),
+        "utf8",
+      );
+      return target;
+    }
+
+    it("names each flag that is on and where it is set", () => {
+      writeFileSync(
+        path,
+        JSON.stringify({ env: { OTEL_LOG_TOOL_CONTENT: "true" } }),
+        "utf8",
+      );
+
+      expect(
+        findContentFlagsOn(
+          path,
+          { OTEL_LOG_USER_PROMPTS: "1", OTEL_LOG_TOOL_DETAILS: "0" },
+          managedDir,
+        ),
+      ).toEqual({
+        found: [
+          {
+            key: "OTEL_LOG_USER_PROMPTS",
+            value: "1",
+            source: "the environment",
+            managed: false,
+          },
+          {
+            key: "OTEL_LOG_TOOL_CONTENT",
+            value: "true",
+            source: path,
+            managed: false,
+          },
+        ],
+        unreadable: [],
+      });
+    });
+
+    it("finds nothing once setup has pinned the flags off", () => {
+      writeSettings(applyTelemetrySettings(userSettings(), INSTALL), path);
+
+      expect(findContentFlagsOn(path, {}, managedDir)).toEqual({
+        found: [],
+        unreadable: [],
+      });
+    });
+
+    it("still checks the environment when settings.json does not parse", () => {
+      writeFileSync(path, "{ not json", "utf8");
+
+      expect(
+        findContentFlagsOn(path, { OTEL_LOG_RAW_API_BODIES: "1" }, managedDir)
+          .found,
+      ).toHaveLength(1);
+    });
+
+    it("names the managed settings file that turns a flag on over setup", () => {
+      writeSettings(applyTelemetrySettings(userSettings(), INSTALL), path);
+      const policy = writeManaged("managed-settings.json", {
+        env: { OTEL_LOG_USER_PROMPTS: "1" },
+      });
+
+      expect(findContentFlagsOn(path, {}, managedDir).found).toEqual([
+        {
+          key: "OTEL_LOG_USER_PROMPTS",
+          value: "1",
+          source: policy,
+          managed: true,
+        },
+      ]);
+    });
+
+    it("lets a later drop-in file decide a flag the managed file sets", () => {
+      writeManaged("managed-settings.json", {
+        env: { OTEL_LOG_USER_PROMPTS: "1", OTEL_LOG_TOOL_DETAILS: "0" },
+      });
+      writeManaged("managed-settings.d/10-telemetry.json", {
+        env: { OTEL_LOG_USER_PROMPTS: "0" },
+      });
+      const security = writeManaged("managed-settings.d/20-security.json", {
+        env: { OTEL_LOG_TOOL_DETAILS: "true" },
+      });
+
+      expect(findContentFlagsOn(path, {}, managedDir).found).toEqual([
+        {
+          key: "OTEL_LOG_TOOL_DETAILS",
+          value: "true",
+          source: security,
+          managed: true,
+        },
+      ]);
+    });
+
+    it("skips hidden and non-JSON drop-in files, as Claude Code does", () => {
+      writeManaged("managed-settings.d/.10-draft.json", {
+        env: { OTEL_LOG_USER_PROMPTS: "1" },
+      });
+      writeManaged(
+        "managed-settings.d/20-notes.txt",
+        "OTEL_LOG_USER_PROMPTS=1",
+      );
+
+      expect(managedSettingsFiles(managedDir)).toEqual([
+        join(managedDir, "managed-settings.json"),
+      ]);
+      expect(findContentFlagsOn(path, {}, managedDir).found).toEqual([]);
+    });
+
+    it("reports a managed file that does not parse and reads the rest", () => {
+      const broken = writeManaged("managed-settings.json", "{ not json");
+      const dropIn = writeManaged("managed-settings.d/10-telemetry.json", {
+        env: { OTEL_LOG_ASSISTANT_RESPONSES: "yes" },
+      });
+
+      expect(findContentFlagsOn(path, {}, managedDir)).toEqual({
+        found: [
+          {
+            key: "OTEL_LOG_ASSISTANT_RESPONSES",
+            value: "yes",
+            source: dropIn,
+            managed: true,
+          },
+        ],
+        unreadable: [broken],
+      });
+    });
+
+    it("reads the system directory Claude Code reads on each platform", () => {
+      expect(managedSettingsDir("darwin")).toBe(
+        "/Library/Application Support/ClaudeCode",
+      );
+      expect(managedSettingsDir("linux")).toBe("/etc/claude-code");
+      expect(managedSettingsDir("win32")).toBe("C:\\Program Files\\ClaudeCode");
     });
   });
 });

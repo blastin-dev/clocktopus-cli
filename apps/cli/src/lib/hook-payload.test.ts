@@ -18,7 +18,36 @@ describe("readHookPayload", () => {
       cwd: "/work/acme-portal",
       eventName: "SessionStart",
       durationMs: null,
+      transcriptPath: null,
     });
+  });
+
+  it("reads the transcript path a Codex 0.162.1 SessionEnd sends", () => {
+    expect(
+      readHookPayload(
+        {
+          session_id: "0e5d7c1a-4b2f-7a90-9c3e-5f1b2d8a6e47",
+          transcript_path:
+            "/home/dana/.codex/sessions/2026/10/14/rollout-2026-10-14T09-12-04-0e5d7c1a-4b2f-7a90-9c3e-5f1b2d8a6e47.jsonl",
+          cwd: "/home/dana/work/acme-portal",
+          hook_event_name: "SessionEnd",
+          reason: "other",
+        },
+        undefined,
+      ).transcriptPath,
+    ).toBe(
+      "/home/dana/.codex/sessions/2026/10/14/rollout-2026-10-14T09-12-04-0e5d7c1a-4b2f-7a90-9c3e-5f1b2d8a6e47.jsonl",
+    );
+    expect(
+      readHookPayload(
+        {
+          session_id: "abc",
+          transcript_path: null,
+          hook_event_name: "SessionStart",
+        },
+        undefined,
+      ).transcriptPath,
+    ).toBeNull();
   });
 
   it("takes Cursor's workspace root, event name and duration", () => {
@@ -37,6 +66,7 @@ describe("readHookPayload", () => {
       cwd: "/work/acme-portal",
       eventName: "SessionEnd",
       durationMs: 45000,
+      transcriptPath: null,
     });
   });
 
@@ -65,6 +95,7 @@ describe("readHookPayload", () => {
       durationMs: 13564,
       source: undefined,
       reason: "completed",
+      transcriptPath: "/home/dana/.cursor/projects/acme/transcript.jsonl",
     });
   });
 
@@ -102,6 +133,7 @@ describe("readHookPayload", () => {
       durationMs: null,
       source: "startup",
       reason: undefined,
+      transcriptPath: null,
     });
   });
 
@@ -113,6 +145,7 @@ describe("readHookPayload", () => {
       durationMs: null,
       source: undefined,
       reason: undefined,
+      transcriptPath: null,
     });
   });
 });

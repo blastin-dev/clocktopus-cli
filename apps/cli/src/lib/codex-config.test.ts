@@ -1,26 +1,30 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parse as parseToml } from "smol-toml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   applyCodexHooks,
   applyCodexMcp,
-  applyCodexOtel,
-  buildCodexOtel,
   CodexConfigParseError,
   parseCodexConfigText,
   readCodexConfig,
+  readCodexCredentials,
   readCodexHooks,
   readCodexHookTrust,
+  readCodexLogExporter,
   readCodexMcpUrl,
-  readCodexTelemetry,
   removeCodexHooks,
   removeCodexMcp,
   removeCodexOtel,
-  spliceOtelSection,
   writeCodexConfig,
+  writeCodexCredentials,
   writeCodexHooks,
 } from "./codex-config";
 
@@ -65,139 +69,120 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe("buildCodexOtel", () => {
-  it("puts the receiver path on the endpoint, because Codex does not add one", () => {
-    const otel = buildCodexOtel(INSTALL);
-    const http = (otel.exporter as Record<string, Record<string, unknown>>)[
-      "otlp-http"
-    ]!;
+/** The `[otel]` log exporter an older `agent setup` wrote. */
+const LEGACY_OTEL = `[otel]
+log_user_prompt = false
 
-    // Codex POSTs to the configured URL verbatim — unlike the OTel SDK, it
-    // does not append `/v1/logs`. Omitting the path here would send every
-    // export to the receiver's root and 404 silently.
-    expect(http.endpoint).toBe("https://otel.example.com/v1/logs");
-    expect(http.protocol).toBe("json");
-    expect((http.headers as Record<string, string>).Authorization).toBe(
-      "Bearer ctop_agt_testtoken",
-    );
-  });
+[otel.exporter.otlp-http]
+endpoint = "https://otel.example.com/v1/logs"
+protocol = "json"
 
-  it("does not double the path when the endpoint already ends in a slash", () => {
-    const otel = buildCodexOtel({
-      ...INSTALL,
-      endpoint: "https://otel.example.com/",
+[otel.exporter.otlp-http.headers]
+Authorization = "Bearer ctop_agt_testtoken"
+`;
+
+const parsed = (text: string) => ({
+  text,
+  config: parseCodexConfigText(text),
+});
+
+describe("the [otel] exporter older setups wrote", () => {
+  it("is recognised by its ingest token, with the receiver path stripped", () => {
+    expect(
+      readCodexLogExporter(
+        parseCodexConfigText(`${USER_CONFIG}\n${LEGACY_OTEL}`),
+      ),
+    ).toEqual({
+      ours: true,
+      token: "ctop_agt_testtoken",
+      endpoint: "https://otel.example.com",
     });
-    const http = (otel.exporter as Record<string, Record<string, unknown>>)[
-      "otlp-http"
-    ]!;
-
-    expect(http.endpoint).toBe("https://otel.example.com/v1/logs");
   });
 
-  it("turns prompt logging off explicitly rather than trusting the default", () => {
-    expect(buildCodexOtel(INSTALL).log_user_prompt).toBe(false);
+  it("is not confused with an exporter of the user's own", () => {
+    const own = `${USER_CONFIG}
+[otel.exporter.otlp-http]
+endpoint = "https://collector.acme.example/v1/logs"
+
+[otel.exporter.otlp-http.headers]
+Authorization = "Bearer acme-collector-key"
+`;
+
+    expect(readCodexLogExporter(parseCodexConfigText(own))).toEqual({
+      ours: false,
+      token: null,
+      endpoint: null,
+    });
+    expect(removeCodexOtel(parsed(own))).toEqual({
+      nextText: own,
+      removedKeys: [],
+    });
+  });
+
+  it("is removed, and [otel] with it when nothing of the user's is left", () => {
+    const { nextText, removedKeys } = removeCodexOtel(
+      parsed(`${USER_CONFIG}\n${LEGACY_OTEL}`),
+    );
+
+    expect(removedKeys.sort()).toEqual(["exporter", "log_user_prompt"]);
+    expect(nextText).toBe(USER_CONFIG);
+  });
+
+  it("is removed without the user's own [otel] keys", () => {
+    const config = `${USER_CONFIG}\n${LEGACY_OTEL.replace(
+      "log_user_prompt = false",
+      'log_user_prompt = false\nenvironment = "staging"',
+    )}`;
+    const { nextText } = removeCodexOtel(parsed(config));
+
+    const result = parseCodexConfigText(nextText);
+    expect(result.otel).toEqual({ environment: "staging" });
+    expect(result.model).toBe("gpt-5.6-sol");
   });
 });
 
-describe("splicing [otel] into a hand-written config.toml", () => {
-  it("adds the section without disturbing comments or layout", () => {
-    const next = spliceOtelSection(USER_CONFIG, buildCodexOtel(INSTALL));
-
-    // Every line the user wrote survives, byte for byte. A round trip
-    // through a TOML serialiser would silently drop all three comments.
-    expect(next).toContain("# my codex setup");
-    expect(next).toContain("network_access = true    # needed for npm");
-    expect(next).toContain('args = ["-y", "linear-mcp"]');
-
-    const parsed = parseToml(next) as Record<string, Record<string, unknown>>;
-    expect(parsed.model).toBe("gpt-5.6-sol");
-    expect(parsed.mcp_servers).toEqual({
-      linear: { command: "npx", args: ["-y", "linear-mcp"] },
-    });
-    expect(parsed.otel!.log_user_prompt).toBe(false);
+describe("readCodexCredentials", () => {
+  const previousHome = process.env.CODEX_HOME;
+  beforeEach(() => {
+    process.env.CODEX_HOME = dir;
+  });
+  afterEach(() => {
+    if (previousHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousHome;
   });
 
-  it("replaces an existing [otel] section instead of appending a second", () => {
-    const withOtel = spliceOtelSection(USER_CONFIG, buildCodexOtel(INSTALL));
-    const twice = spliceOtelSection(
-      withOtel,
-      buildCodexOtel({ ...INSTALL, token: "ctop_agt_second" }),
-    );
-
-    // TOML rejects a duplicated table outright, so an append bug here would
-    // stop Codex booting at all.
-    expect(twice.match(/^\[otel\]/gm)).toHaveLength(1);
-    expect(twice).toContain("ctop_agt_second");
-    expect(twice).not.toContain("ctop_agt_testtoken");
-    expect(() => parseToml(twice)).not.toThrow();
-  });
-
-  it("keeps the user's own [otel] keys when merging ours in", () => {
-    const config = `${USER_CONFIG}
-[otel]
-environment = "staging"
-`;
-    const parsed = parseToml(config) as Record<string, unknown>;
-    const next = applyCodexOtel({ text: config, config: parsed }, INSTALL);
-
-    const result = parseToml(next) as Record<string, Record<string, unknown>>;
-    expect(result.otel!.environment).toBe("staging");
-    expect(result.otel!.log_user_prompt).toBe(false);
-  });
-
-  it("removes only our keys, leaving the rest of [otel] behind", () => {
-    const config = `${USER_CONFIG}
-[otel]
-environment = "staging"
-`;
-    const withOurs = applyCodexOtel(
-      { text: config, config: parseToml(config) as Record<string, unknown> },
-      INSTALL,
-    );
-
-    const { nextText, removedKeys } = removeCodexOtel({
-      text: withOurs,
-      config: parseToml(withOurs) as Record<string, unknown>,
+  it("reads the credentials file setup writes, readable only by its owner", () => {
+    writeCodexCredentials({
+      token: "ctop_agt_fromfile",
+      endpoint: "https://otel.example.com/",
     });
 
-    expect(removedKeys.sort()).toEqual(["exporter", "log_user_prompt"]);
-    const parsed = parseToml(nextText) as Record<
-      string,
-      Record<string, unknown>
-    >;
-    expect(parsed.otel).toEqual({ environment: "staging" });
-    expect(parsed.model).toBe("gpt-5.6-sol");
-  });
-
-  it("drops [otel] entirely when nothing of the user's is left in it", () => {
-    const withOurs = spliceOtelSection(USER_CONFIG, buildCodexOtel(INSTALL));
-    const { nextText } = removeCodexOtel({
-      text: withOurs,
-      config: parseToml(withOurs) as Record<string, unknown>,
+    expect(readCodexCredentials()).toMatchObject({
+      token: "ctop_agt_fromfile",
+      endpoint: "https://otel.example.com",
+      legacyExporter: false,
     });
-
-    expect(nextText).not.toContain("[otel]");
-    expect(parseToml(nextText)).toEqual(parseToml(USER_CONFIG));
+    expect(statSync(join(dir, "clocktopus.json")).mode & 0o777).toBe(0o600);
   });
 
-  it("survives an add/remove cycle without accumulating blank lines", () => {
-    let text = USER_CONFIG;
-    for (let i = 0; i < 3; i++) {
-      text = spliceOtelSection(text, buildCodexOtel(INSTALL));
-      text = removeCodexOtel({
-        text,
-        config: parseToml(text) as Record<string, unknown>,
-      }).nextText;
-    }
+  it("falls back to the token an older setup left in [otel]", () => {
+    writeFileSync(configPath, `${USER_CONFIG}\n${LEGACY_OTEL}`);
 
-    expect(text).toBe(USER_CONFIG);
+    expect(readCodexCredentials()).toMatchObject({
+      token: "ctop_agt_testtoken",
+      endpoint: "https://otel.example.com",
+      legacyExporter: true,
+    });
   });
 
-  it("creates the section from nothing when the file does not exist yet", () => {
-    const next = spliceOtelSection("", buildCodexOtel(INSTALL));
-    expect(
-      (parseToml(next) as Record<string, Record<string, unknown>>).otel,
-    ).toBeDefined();
+  it("keeps the credentials file when config.toml cannot be parsed", () => {
+    writeCodexCredentials({
+      token: "ctop_agt_fromfile",
+      endpoint: "https://otel.example.com",
+    });
+    writeFileSync(configPath, "model = = =");
+
+    expect(readCodexCredentials().token).toBe("ctop_agt_fromfile");
   });
 });
 
@@ -255,24 +240,23 @@ describe("[mcp_servers.clocktopus]", () => {
     expect(nextText).toBe(USER_CONFIG);
   });
 
-  it("passes the write guard alongside [otel]", () => {
-    writeFileSync(configPath, USER_CONFIG);
+  it("passes the write guard while the old exporter is removed", () => {
+    writeFileSync(configPath, `${USER_CONFIG}\n${LEGACY_OTEL}`);
     const current = readCodexConfig(configPath);
-    const withOtel = applyCodexOtel(current, INSTALL);
+    const withoutExporter = removeCodexOtel(current).nextText;
 
     writeCodexConfig({
       path: configPath,
       previousText: current.text,
       previousConfig: current.config,
-      nextText: applyCodexMcp(
-        { text: withOtel, config: parseCodexConfigText(withOtel) },
-        API,
-      ),
+      nextText: applyCodexMcp(parsed(withoutExporter), API),
     });
 
-    expect(readCodexMcpUrl(readCodexConfig(configPath).config)).toBe(
+    const written = readCodexConfig(configPath).config;
+    expect(readCodexMcpUrl(written)).toBe(
       "https://clocktopus.example.com/api/mcp",
     );
+    expect(written.otel).toBeUndefined();
   });
 
   it("still refuses an edit that changes another MCP server", () => {
@@ -299,15 +283,19 @@ describe("writeCodexConfig — the guard on the splice", () => {
       path: configPath,
       previousText: current.text,
       previousConfig: current.config,
-      nextText: applyCodexOtel(current, INSTALL),
+      nextText: applyCodexMcp(current, {
+        apiUrl: "https://clocktopus.example.com",
+      }),
     });
 
     expect(backupPath).toBe(`${configPath}.clocktopus-backup`);
     expect(readFileSync(backupPath!, "utf8")).toBe(USER_CONFIG);
-    expect(readCodexTelemetry(configPath).token).toBe(INSTALL.token);
+    expect(readCodexMcpUrl(readCodexConfig(configPath).config)).toBe(
+      "https://clocktopus.example.com/api/mcp",
+    );
   });
 
-  it("refuses to write an edit that would change anything outside [otel]", () => {
+  it("refuses to write an edit that would change anything outside its tables", () => {
     writeFileSync(configPath, USER_CONFIG);
     const current = readCodexConfig(configPath);
 
@@ -346,30 +334,6 @@ describe("writeCodexConfig — the guard on the splice", () => {
     // Far more likely a half-finished edit than something to clobber.
     writeFileSync(configPath, "model = = =");
     expect(() => readCodexConfig(configPath)).toThrow(CodexConfigParseError);
-  });
-});
-
-describe("readCodexTelemetry", () => {
-  it("strips the receiver path back off so the hook gets a base URL", () => {
-    writeFileSync(
-      configPath,
-      spliceOtelSection(USER_CONFIG, buildCodexOtel(INSTALL)),
-    );
-
-    const telemetry = readCodexTelemetry(configPath);
-    // The hook posts to `<endpoint>/v1/agent-session` and doctor to
-    // `<endpoint>/v1/verify`; leaving `/v1/logs` on would make both 404.
-    expect(telemetry.endpoint).toBe("https://otel.example.com");
-    expect(telemetry.token).toBe(INSTALL.token);
-    expect(telemetry.protocol).toBe("json");
-  });
-
-  it("reports nothing configured rather than throwing on a missing file", () => {
-    expect(readCodexTelemetry(configPath)).toMatchObject({
-      exists: false,
-      token: null,
-      endpoint: null,
-    });
   });
 });
 

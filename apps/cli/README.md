@@ -171,13 +171,21 @@ skips both and installs everything into every agent found.
 | Agent       | `--agent` id | Writes                                                                         |
 | ----------- | ------------ | ------------------------------------------------------------------------------ |
 | Claude Code | `claude`     | `~/.claude/settings.json`, the plugin                                          |
-| Codex CLI   | `codex`      | `~/.codex/config.toml`, `~/.codex/hooks.json`, `~/.agents/skills`              |
+| Codex CLI   | `codex`      | `~/.codex/hooks.json`, `clocktopus.json`, `config.toml`, `~/.agents/skills`    |
 | OpenCode    | `opencode`   | `~/.config/opencode/plugin/clocktopus.js`, `opencode.json`, `~/.agents/skills` |
 | Cursor      | `cursor`     | `~/.cursor/hooks.json`, `mcp.json`, `clocktopus.json`, `~/.agents/skills`      |
 
 It mints **one** ingest token for the machine, writes each agent's exporter
 configuration and `SessionStart` / `SessionEnd` hooks, then confirms the
 receiver accepts the token before reporting success.
+
+For Claude Code it also writes Claude Code's content flags off
+(`OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_ASSISTANT_RESPONSES`,
+`OTEL_LOG_TOOL_DETAILS`, `OTEL_LOG_TOOL_CONTENT` and `OTEL_LOG_RAW_API_BODIES`,
+each `0`), so prompts, responses, tool input and output and API bodies stay
+redacted even when your shell exports one of them. Managed settings can still
+turn them on; `agent doctor` and `agent status` warn when any is on in your
+environment or `~/.claude/settings.json`.
 
 For Claude Code it also installs the **Clocktopus plugin**, which carries the
 skills and the Clocktopus MCP server. It is copied from this package into
@@ -299,11 +307,31 @@ the agent sat waiting for you. Cursor passes a hook no
 environment, so the token sits in `~/.cursor/clocktopus.json`, readable only by
 you. It is detected by `cursor-agent` or the IDE's `cursor` command.
 
+**Codex reports through its hook.** Codex's own OpenTelemetry log exporter
+sends tool output (commands and the files they print) along with the token
+counts, so setup does not turn it on, and removes the `[otel]` exporter an
+older setup wrote into `~/.codex/config.toml`, leaving any `[otel]` keys of
+your own. Instead `clocktopus agent hook`, on each `SessionStart` and
+`SessionEnd`, reads the session's own record,
+`~/.codex/sessions/YYYY/MM/DD/rollout-*-<session id>.jsonl` (under
+`CODEX_HOME` when set), and sends only the token totals, the model, how long
+each turn took and the session id. It parses no other line of that file:
+prompts, replies and tool output stay on your machine. It sends only what was
+added since its last report, so a resumed session is not counted twice, even
+after `agent disable` and setup again: how far each session was reported is
+kept in `~/.cache/clocktopus/codex-spend`, which `agent disable` leaves in
+place. An entry untouched for 90 days is deleted, and a session with no entry
+sends only turns from the last 90 days. The token sits in `~/.codex/clocktopus.json`, readable only by you, because Codex
+passes a hook no environment from its config.
+
+Until setup runs again with this CLI, an older install keeps reporting through
+Codex's exporter, and `agent doctor` flags it.
+
 **Codex needs one extra step, once.** It will not run a `hooks.json` it has
 not been shown, so the next Codex session asks — answer _Trust all and
-continue_. Until you do, Codex reports what your sessions cost but not which
-repository they were spent on. `clocktopus agent doctor` reports the state
-until it is approved.
+continue_. Until you do, Clocktopus records neither what Codex sessions cost
+nor which repository they were spent on. `clocktopus agent doctor` reports
+the state until it is approved.
 
 Everything for an agent lands in that agent's own config rather than a shell
 profile. That single source of truth per agent is what lets `agent doctor`
@@ -363,19 +391,52 @@ cannot show, because those sessions simply never arrive.
 That second failure is why there is no single "connected" line — it is the
 one that silently understates what work cost.
 
+### See exactly what the hook sends
+
+Set `CLOCKTOPUS_HOOK_DRY_RUN` and `clocktopus agent hook` prints every request
+it would make — the session report to `/v1/agent-session`, Codex's spend to
+`/v1/traces`, and the close of any abandoned session — as a `POST <url>` line
+followed by the exact JSON body, and sends nothing. The token is never printed.
+To try it by hand, pipe it the payload an agent would:
+
+```bash
+echo '{"hook_event_name":"SessionStart","session_id":"x","cwd":"'$PWD'"}' \
+  | CLOCKTOPUS_HOOK_DRY_RUN=1 clocktopus agent hook
+```
+
+Add `--provider codex_cli` and a real Codex session id, with
+`"hook_event_name":"SessionEnd"`, to see the spend report for that session.
+
+| Value                    | Output                       |
+| ------------------------ | ---------------------------- |
+| `1`, `true`, `yes`, `on` | stderr                       |
+| a file path              | appended to that file        |
+| unset, `0`, `false`      | off: the hook sends as usual |
+
+`--dry-run [file]` does the same from the command line. Lines starting with `#`
+say why nothing was sent, such as a missing token. A dry run never writes to
+stdout, always exits `0`, runs in the foreground rather than detaching, and
+changes no state under `~/.cache/clocktopus`, so the next real run still sends
+everything, Codex spend included.
+
+To watch a live session, start the agent from a shell with
+`CLOCKTOPUS_HOOK_DRY_RUN` set to a file path, since agents do not show a hook's
+stderr. That session's reports are then not sent at all.
+
 ### `clocktopus agent doctor`
 
 Checks every link in the chain, per agent, and names the first one that is
 broken: the config file parses, the exporter is configured, every signal the
 receiver reads is being sent, both hooks are installed, the hook command
 actually executes, Codex has approved its hooks, the receiver accepts the
-token, no other file is shadowing the configuration, and whether that agent
-needs restarting.
+token, no other file is shadowing the configuration, Claude Code's content
+flags are off, and whether that agent needs restarting.
 
 The signals check is there for configurations written before a signal
 existed. Those still hold a valid token and endpoint, so everything else
-passes while one stream never leaves the machine — a Claude Code install
-predating BLA-671 reports cost correctly and no sub-agent runtime at all.
+passes while one stream never leaves the machine — a Claude Code
+configuration without the logs exporter reports cost correctly and no
+sub-agent runtime at all.
 Re-running `agent setup` merges the missing keys in; nothing needs removing
 first. The repository
 checks — attached to a project, delivering commits — run once at the end,
@@ -410,6 +471,143 @@ like an idle week rather than a broken install.
 Stopping and revoking are separate on purpose: removing the local
 configuration stops _this_ machine reporting, but does nothing about a token
 that has already been copied elsewhere or committed.
+
+## What leaves your machine
+
+`clocktopus agent setup` points every agent at one host, the Clocktopus
+receiver, and every request to it carries the machine's ingest token as a
+bearer. This section lists each request, what is in it and the file that
+builds it, so it can be checked from this repository alone. The receiver's
+source is not in this repository; the files it names are in the Clocktopus
+monorepo, under `packages/core/src/agent-telemetry/`.
+
+### Who sends what
+
+| Agent                | Sender                                | Endpoint            | Carries                                                                                                                                                                                                         | Built by                                                                                                        |
+| -------------------- | ------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Claude Code          | Claude Code's own metrics exporter    | `/v1/metrics`       | Cost, tokens by type, active time, lines of code, commit and pull request counts, sessions; each with the session id, model, query source and terminal type, plus Claude Code's standard attributes (see below) | Claude Code, configured by [`src/lib/claude-settings.ts`](src/lib/claude-settings.ts) (`buildTelemetryEnv`)     |
+| Claude Code          | Claude Code's own logs exporter       | `/v1/logs`          | Claude Code's event stream: prompt, API request, tool and sub-agent events, with their content redacted while the content flags are off                                                                         | Claude Code, configured by [`src/lib/claude-settings.ts`](src/lib/claude-settings.ts)                           |
+| Codex CLI            | `clocktopus agent hook`               | `/v1/traces`        | Token totals per model, the duration of each completed turn, the session id and Codex's version                                                                                                                 | [`src/lib/codex-spend.ts`](src/lib/codex-spend.ts), from [`src/lib/codex-rollout.ts`](src/lib/codex-rollout.ts) |
+| OpenCode             | The generated plugin                  | `/v1/traces`        | Per model call: its start and end, the session id, model, provider, token counts and OpenCode's own cost estimate, plus OpenCode's version                                                                      | [`src/lib/opencode-config.ts`](src/lib/opencode-config.ts) (`buildOpencodePlugin`)                              |
+| All four             | `clocktopus agent hook`               | `/v1/agent-session` | The session report (next table)                                                                                                                                                                                 | [`src/commands/agent/hook.ts`](src/commands/agent/hook.ts)                                                      |
+| None (setup, doctor) | `clocktopus agent setup` and `doctor` | `/v1/verify`        | `{}`, to check the token                                                                                                                                                                                        | [`src/lib/agent-receiver.ts`](src/lib/agent-receiver.ts)                                                        |
+
+Cursor sends only the session report. OpenCode's plugin hands its session
+start and end to `clocktopus agent hook` as a session id, event name and
+directory. `clocktopus agent context` makes no request at all: it reads local
+git state and prints to the session.
+
+The session report, from every agent:
+
+| Field                               | Value                                                                                                                                         |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `provider`                          | `claude_code`, `codex_cli`, `opencode` or `cursor`                                                                                            |
+| `session_id`, `hook_event_name`     | The agent's session id; `SessionStart` or `SessionEnd`                                                                                        |
+| `cwd`                               | The session's directory, as `~/…` when it is under your home directory ([`src/lib/home-relative-path.ts`](src/lib/home-relative-path.ts))     |
+| `source`, `reason`                  | The start source and end reason the agent passes its hook, when it passes one                                                                 |
+| `repository_url`, `repository_urls` | Every git remote URL of the checkout, `origin` first, as `git remote -v` prints it less any credential in it (below)                          |
+| `git_branch`                        | The checked-out branch                                                                                                                        |
+| `git_head_before`, `git_head_after` | The HEAD commit at the session's start and end                                                                                                |
+| `commit_shas`                       | Up to 200 commit SHAs made in the checkout during the session, from its reflog ([`src/lib/declared-commits.ts`](src/lib/declared-commits.ts)) |
+| `duration_ms`                       | Cursor only: the session length Cursor reports at its end                                                                                     |
+| `ended_at`                          | Only when closing a session that never sent `SessionEnd`: the time it was last active                                                         |
+
+No remote URL is sent with a credential in it. The CLI drops the user name,
+password or token from an `https://` remote (`https://user:<token>@host/…` is
+sent as `https://host/…`) and the password from an SSH one, keeping its user
+(`git@host:…`), which the receiver needs to read the repository. `clocktopus
+init` names the repository the same way. The rule is `stripRemoteCredentials`
+in [`packages/cli-contract/src/remote-url.ts`](../../packages/cli-contract/src/remote-url.ts), applied in
+[`src/lib/git-remotes.ts`](src/lib/git-remotes.ts) and
+[`src/commands/init/checkout.ts`](src/commands/init/checkout.ts); the receiver
+applies it too before it reads or stores a remote.
+
+The hook reads only `session_id`, `cwd` (or Cursor's `workspace_roots`),
+`hook_event_name`, `duration_ms`, `source`, `reason` and `transcript_path` from
+what the agent pipes it, and ignores the rest
+([`src/lib/hook-payload.ts`](src/lib/hook-payload.ts)). `transcript_path` is
+never sent: for Codex it locates the session's rollout file, of which only the
+`session_meta`, `turn_context`, `token_count` and `task_complete` lines are
+parsed. To see the exact bytes, run the hook in
+[dry-run mode](#see-exactly-what-the-hook-sends). A dry run covers every
+request `agent hook` makes, and not what Claude Code's exporters or the
+OpenCode plugin send directly.
+
+### What Claude Code sends itself
+
+Claude Code runs its own exporters, so what it sends follows its settings.
+Setup writes `OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_ASSISTANT_RESPONSES`,
+`OTEL_LOG_TOOL_DETAILS`, `OTEL_LOG_TOOL_CONTENT` and `OTEL_LOG_RAW_API_BODIES`
+as `0` in the `env` of `~/.claude/settings.json`, which takes precedence over
+your shell. Claude Code's managed settings take precedence over that file, so
+an organisation's managed policy can still turn a flag on, and Claude Code then
+sends that content to `/v1/logs`. The receiver reads only `subagent_completed`
+records from that stream and discards everything else unread, but the content
+has left your machine by then.
+
+`agent doctor` and `agent status` warn when a content flag is on in the
+environment they run in, in `~/.claude/settings.json`, or in a managed settings
+file, and name the file. They read the files Claude Code reads, in its order:
+`managed-settings.json` and then each `*.json` in `managed-settings.d/`
+alphabetically, in `/Library/Application Support/ClaudeCode/` on macOS,
+`/etc/claude-code/` on Linux and WSL and `C:\Program Files\ClaudeCode\` on
+Windows ([`src/lib/claude-settings.ts`](src/lib/claude-settings.ts),
+`findContentFlagsOn`). A managed file that is not valid JSON is reported as
+unreadable. Policy delivered as an MDM profile, a Windows registry value or
+server-managed settings from the claude.ai console leaves no file, so neither
+command sees a flag it turns on; Claude Code's `/status` names the managed
+source in force. A repository's `.claude/settings.json` and
+`.claude/settings.local.json` can't turn a flag on: Claude Code (v2.1.282 or
+later) applies a content flag from them only when it turns the flag off.
+
+Claude Code also attaches its standard attributes to every metric and event,
+including the signed-in account's `user.account_uuid`, `user.email` and
+`organization.id`. The receiver does not read them.
+
+Codex's own OpenTelemetry exporter is not used: setup does not turn it on, and
+removes the `[otel]` exporter an older setup wrote.
+
+### What the receiver reads
+
+Each normaliser reads attributes through an allowlist and ignores every other
+key. OTLP log record bodies are never parsed, and the receiver never writes a
+request body to its logs: on an error it logs the error's class, code and
+stack frames, and for a failed query its SQL statement (placeholders, no
+values) and the Postgres table, column, constraint and routine, never the
+error's message, detail or params.
+
+| Endpoint            | Normaliser                      | Reads                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/metrics`       | `normalize-claude-code.ts`      | Metrics `claude_code.session.count`, `cost.usage`, `token.usage`, `active_time.total`, `lines_of_code.count`, `commit.count`, `pull_request.count`; point attributes `session.id`, `model`, `query_source`, `type`, `start_type`, `terminal.type`; resource `service.version`                                                                                                                                        |
+| `/v1/logs`          | `normalize-claude-code-logs.ts` | Scope `com.anthropic.claude_code.events`, `subagent_completed` records only: `event.name`, `event.timestamp`, `session.id`, `terminal.type`, `duration_ms`                                                                                                                                                                                                                                                           |
+| `/v1/logs`          | `normalize-codex-logs.ts`       | Scope `codex_otel.log_only`: `event.name`, `event.kind`, `event.timestamp`, `conversation.id`, `app.version`, `model`, `slug`, `terminal.type`, `duration_ms`, `input_token_count`, `output_token_count`, `cached_token_count`, `cache_write_token_count`                                                                                                                                                            |
+| `/v1/traces`        | `normalize-genai-traces.ts`     | Span name, start and end; `gen_ai.client.session_id` (or `gen_ai.conversation.id`, `session.id`), `gen_ai.client.name` (or `gen_ai.provider.name`, resource `service.name`), `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `cost`, `vcs.repository.name`, `vcs.ref.head.name`; resource `service.version` |
+| `/v1/agent-session` | `agent-session-hook.ts`         | The session report fields above. `transcript_path` is accepted and never read                                                                                                                                                                                                                                                                                                                                        |
+
+### The ingest token
+
+The ingest token (`ctop_agt_…`) is accepted only by the receiver. With it, a
+request can write the token owner's agent sessions, their spend, the commits
+and tasks linked to them, and a clock-in started from a session; `/v1/verify`
+returns the owner's user id. It reads nothing else back, and the web app, its
+API and the MCP server do not accept it. `clocktopus agent disable --revoke`
+revokes it.
+
+| Agent       | Stored in                                                                                   |
+| ----------- | ------------------------------------------------------------------------------------------- |
+| Claude Code | `~/.claude/settings.json`, as `CLOCKTOPUS_INGEST_TOKEN` and in `OTEL_EXPORTER_OTLP_HEADERS` |
+| Codex CLI   | `~/.codex/clocktopus.json`                                                                  |
+| OpenCode    | `~/.config/opencode/plugin/clocktopus.js`                                                   |
+| Cursor      | `~/.cursor/clocktopus.json`                                                                 |
+
+Each is written to a new file at mode `0600` and renamed into place, so only
+you can read it ([`src/lib/credentials-file.ts`](src/lib/credentials-file.ts)
+for the two `clocktopus.json` files). The `.clocktopus-backup` copy setup keeps
+of `settings.json` and of the plugin has the mode of the file it copies.
+
+The MCP server and the skills are separate from all of the above: they send
+Clocktopus what the agent writes into a task or goal, through the MCP server
+you sign in to, not with the ingest token.
 
 ## Token Storage
 

@@ -226,8 +226,16 @@ agent
   .option("--provider <provider>", "Which agent installed this hook")
   // Set by `detachSelf` in `commands/agent/hook.ts` on the backgrounded copy.
   .option("--detached", "Internal: this is the backgrounded copy")
-  .action((options: { provider?: string; detached?: boolean }) =>
-    hookCommand(options),
+  .option(
+    "--dry-run [file]",
+    "Print each request to stderr, or append it to <file>, instead of sending it",
+  )
+  .action(
+    (options: {
+      provider?: string;
+      detached?: boolean;
+      dryRun?: boolean | string;
+    }) => hookCommand(options),
   );
 
 export function run(): void {

@@ -5,6 +5,10 @@ import { readLastRun } from "../../lib/agent-hook-state.js";
 import { isConfigParseError, surveyAgents } from "../../lib/agents.js";
 import { ApiError, get } from "../../lib/api.js";
 import { CLAUDE_PLUGIN_ID, readClaudePlugin } from "../../lib/claude-plugin.js";
+import {
+  describeContentFlags,
+  findContentFlagsOn,
+} from "../../lib/claude-settings.js";
 import { isLoggedIn } from "../../lib/config.js";
 import { formatAgo, labelled, microUsdToDisplay } from "../../lib/format.js";
 
@@ -106,6 +110,44 @@ export async function statusCommand(): Promise<void> {
   })) {
     console.log(`\n${diagnosis}`);
   }
+
+  const contentCallout = contentFlagCallout(
+    usesClaude() ? findContentFlagsOn() : { found: [], unreadable: [] },
+  );
+  if (contentCallout) console.log(`\n${contentCallout}`);
+}
+
+function usesClaude(): boolean {
+  return surveyAgents().some(
+    (entry) =>
+      entry.agent.id === "claude" && (entry.installed || entry.configured),
+  );
+}
+
+export function contentFlagCallout({
+  found,
+  unreadable,
+}: ReturnType<typeof findContentFlagsOn>): string | null {
+  const lines: string[] = [];
+  if (found.length > 0) {
+    lines.push(
+      "⚠ Claude Code is set to export session content to Clocktopus:",
+      `  ${describeContentFlags(found)}.`,
+      "  Unset these or set them to 0, then run 'clocktopus agent setup'.",
+    );
+    if (found.some((flag) => flag.managed)) {
+      lines.push(
+        "  A managed settings file overrides setup: ask whoever deploys it.",
+      );
+    }
+  }
+  if (unreadable.length > 0) {
+    lines.push(
+      `⚠ Couldn't read Claude Code's managed settings: ${unreadable.join(", ")}.`,
+      "  A content flag turned on there would not show above.",
+    );
+  }
+  return lines.length > 0 ? lines.join("\n") : null;
 }
 
 // True when nothing is configured either, so a fresh machine still hears about a

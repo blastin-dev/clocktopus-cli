@@ -119,8 +119,8 @@ Without a session id, Clocktopus looks for your live session in the
 repository. When `status` is:
 
 - `choose_session`: several are live. Call again with the `agentSessionId`
-  and `agent` of the one whose `cwd` and `gitBranch` match yours; ask the
-  user if none clearly does.
+  and `agent` of the one whose `cwd` and `gitBranch` match yours (a `cwd`
+  under your home directory reads `~/…`); ask the user if none clearly does.
 - `no_session`: none has reported yet, so this session can't be tied. Say so
   once and carry on: the branch name still attributes the work.
 

@@ -4,15 +4,19 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
-  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { z } from "zod";
 
+import type { AgentCredentials } from "./credentials-file.js";
 import { contextCommandFor, isContextHookCommand } from "./context-hook.js";
+import {
+  readCredentialsFile,
+  removeCredentialsFile,
+  writeCredentialsFile,
+} from "./credentials-file.js";
 import { MCP_SERVER_NAME, mcpServerUrl } from "./mcp-server.js";
 
 // Cursor runs a hook with no environment from its config, so the token lives in a
@@ -242,52 +246,19 @@ export function removeCursorMcp(file: JsonObject): {
   return { file: { ...file, mcpServers: servers }, removed: true };
 }
 
-const CredentialsSchema = z.object({
-  token: z.string().min(1),
-  endpoint: z.string().min(1),
-});
-
-// Null when missing or unreadable, which reports as unconfigured.
-export function readCursorCredentials(path = cursorCredentialsPath()): {
-  path: string;
-  modifiedAt: Date | null;
-  credentials: z.infer<typeof CredentialsSchema> | null;
-} {
-  if (!existsSync(path)) return { path, modifiedAt: null, credentials: null };
-  const modifiedAt = statSync(path).mtime;
-  try {
-    const parsed = CredentialsSchema.safeParse(
-      JSON.parse(readFileSync(path, "utf8")),
-    );
-    return {
-      path,
-      modifiedAt,
-      credentials: parsed.success ? parsed.data : null,
-    };
-  } catch {
-    return { path, modifiedAt, credentials: null };
-  }
+export function readCursorCredentials(path = cursorCredentialsPath()) {
+  return readCredentialsFile(path);
 }
 
 export function writeCursorCredentials(
-  credentials: z.infer<typeof CredentialsSchema>,
+  credentials: AgentCredentials,
   path = cursorCredentialsPath(),
 ): void {
-  writeCursorJson(
-    {
-      token: credentials.token,
-      endpoint: credentials.endpoint.replace(/\/$/, ""),
-    },
-    path,
-  );
-  // The backup holds the previous token, which nothing reads.
-  rmSync(`${path}.clocktopus-backup`, { force: true });
+  writeCredentialsFile(credentials, path);
 }
 
 export function removeCursorCredentials(
   path = cursorCredentialsPath(),
 ): boolean {
-  if (!existsSync(path)) return false;
-  rmSync(path, { force: true });
-  return true;
+  return removeCredentialsFile(path);
 }

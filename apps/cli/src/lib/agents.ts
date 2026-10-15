@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 
+import type { HookDryRun } from "./hook-request.js";
 import {
   applyTelemetrySettings,
   readInstalledTelemetry,
@@ -12,23 +13,27 @@ import {
 import {
   applyCodexHooks,
   applyCodexMcp,
-  applyCodexOtel,
   CodexConfigParseError,
   codexConfigPath,
+  codexCredentialsPath,
   codexHooksPath,
   HOOK_EVENT_COUNT,
   parseCodexConfigText,
   readCodexConfig,
+  readCodexCredentials,
   readCodexHooks,
   readCodexHookTrust,
+  readCodexLogExporter,
   readCodexMcpUrl,
-  readCodexTelemetry,
+  removeCodexCredentials,
   removeCodexHooks,
   removeCodexMcp,
   removeCodexOtel,
   writeCodexConfig,
+  writeCodexCredentials,
   writeCodexHooks,
 } from "./codex-config.js";
+import { reportCodexSpend } from "./codex-spend.js";
 import {
   applyCursorHooks,
   applyCursorMcp,
@@ -138,9 +143,18 @@ export type AgentAdapter = {
   remove(): { removed: string[] };
   // Empty when the agent is ready apart from a restart.
   pendingActions(): string[];
-  // Null when current. Defined only where the integration is generated source; other
-  // agents store a command string that follows the installed CLI.
+  // Null when current. Defined where the integration is generated source, or where an
+  // older setup left configuration this CLI no longer writes.
   staleReason?(): string | null;
+  // Sends the session's spend from `agent hook`, for an agent that does not export it.
+  // Never throws.
+  reportSpend?(input: {
+    endpoint: string;
+    token: string;
+    sessionId: string;
+    transcriptPath: string | null;
+    dryRun: HookDryRun | null;
+  }): Promise<void>;
 };
 
 export function isConfigParseError(error: unknown): error is Error {
@@ -233,20 +247,25 @@ const codexAdapter: AgentAdapter = {
   usesSharedSkills: true,
   runsContextHook: true,
 
-  paths: () => [codexConfigPath(), codexHooksPath()],
+  paths: () => [codexConfigPath(), codexHooksPath(), codexCredentialsPath()],
 
   read() {
-    const telemetry = readCodexTelemetry();
+    const credentials = readCodexCredentials();
+    const config = readCodexConfig();
     const hooks = readCodexHooks();
 
     return {
-      token: telemetry.token,
-      endpoint: telemetry.endpoint,
+      token: credentials.token,
+      endpoint: credentials.endpoint,
       hookCommands: hooks.commands,
       missingLanes: [],
-      modifiedAt: newest([telemetry.modifiedAt, hooks.modifiedAt]),
-      paths: [telemetry.path, hooks.path],
-      mcpUrl: readCodexMcpUrl(readCodexConfig().config),
+      modifiedAt: newest([
+        credentials.modifiedAt,
+        config.modifiedAt,
+        hooks.modifiedAt,
+      ]),
+      paths: [credentials.path, config.path, hooks.path],
+      mcpUrl: readCodexMcpUrl(config.config),
       contextCommand: hooks.contextCommand,
     };
   },
@@ -254,22 +273,29 @@ const codexAdapter: AgentAdapter = {
   apply(input) {
     const backupPaths: string[] = [];
 
+    writeCodexCredentials(input);
+
     // One write for both tables, so the backup is the file as the user left it.
     const config = readCodexConfig();
-    const withOtel = applyCodexOtel(config, input);
+    const withoutExporter = removeCodexOtel(config).nextText;
     const nextText = input.mcp
       ? applyCodexMcp(
-          { text: withOtel, config: parseCodexConfigText(withOtel) },
+          {
+            text: withoutExporter,
+            config: parseCodexConfigText(withoutExporter),
+          },
           input,
         )
-      : withOtel;
-    const written = writeCodexConfig({
-      path: config.path,
-      previousText: config.text,
-      previousConfig: config.config,
-      nextText,
-    });
-    if (written.backupPath) backupPaths.push(written.backupPath);
+      : withoutExporter;
+    if (nextText !== config.text) {
+      const written = writeCodexConfig({
+        path: config.path,
+        previousText: config.text,
+        previousConfig: config.config,
+        nextText,
+      });
+      if (written.backupPath) backupPaths.push(written.backupPath);
+    }
 
     const hooks = readCodexHooks();
     const nextHooks = applyCodexHooks(hooks.file, input);
@@ -310,8 +336,19 @@ const codexAdapter: AgentAdapter = {
       }
     }
 
+    if (removeCodexCredentials()) removed.push(codexCredentialsPath());
     return { removed };
   },
+
+  staleReason() {
+    if (!readCodexLogExporter(readCodexConfig().config).ours) return null;
+    return (
+      "an older setup left Codex's own log exporter in [otel] of config.toml; " +
+      "it sends tool output to the receiver, which discards it"
+    );
+  },
+
+  reportSpend: reportCodexSpend,
 
   pendingActions() {
     // Codex runs an unapproved hook only after a prompt in its own TUI, which this CLI
@@ -328,8 +365,8 @@ const codexAdapter: AgentAdapter = {
 
     return [
       "Start Codex once and answer 'Trust all and continue' when it asks\n" +
-        `  about ${missing}. Until then Codex records your spend but not the\n` +
-        "  repository it was spent on — it will not run an unapproved hook.",
+        `  about ${missing}. Until then Clocktopus records neither the spend nor\n` +
+        "  the repository of a Codex session — it will not run an unapproved hook.",
     ];
   },
 };

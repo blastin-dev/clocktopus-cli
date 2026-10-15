@@ -7,7 +7,7 @@ import type { Checkout, InitDeps, InitState } from "./types.js";
 import { ApiError } from "../../lib/api.js";
 import { createPrompter, parseChoice, parseYesNo } from "../../lib/prompt.js";
 import { runAgentsStep } from "./agents.js";
-import { parseRemote } from "./checkout.js";
+import { parseRemote, readCheckout } from "./checkout.js";
 import { decideEmailStep, runEmailStep } from "./email.js";
 import { parseSkippedSteps, runInit } from "./index.js";
 import { findLinkedProject, runProjectStep } from "./project.js";
@@ -198,6 +198,28 @@ describe("parseRemote", () => {
     "https://github.com/acme-co",
   ])("rejects %s", (url) => {
     expect(parseRemote(url)).toBeNull();
+  });
+});
+
+describe("readCheckout", () => {
+  it("drops the credentials from the origin remote, keeping its repository", () => {
+    const checkout = readCheckout({
+      run: (command, args) =>
+        command === "git" && args.join(" ") === "remote get-url origin"
+          ? {
+              ok: true,
+              stdout:
+                "https://jordan:ghp_fake0token1@github.com/acme-co/acme-portal.git\n",
+              stderr: "",
+            }
+          : { ok: false, stdout: "", stderr: "" },
+    });
+
+    expect(checkout.remote).toBe("https://github.com/acme-co/acme-portal.git");
+    expect(checkout.repository).toMatchObject({
+      provider: "github",
+      ownerRepo: "acme-co/acme-portal",
+    });
   });
 });
 

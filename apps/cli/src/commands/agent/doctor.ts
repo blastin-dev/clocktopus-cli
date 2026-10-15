@@ -18,6 +18,10 @@ import {
   cliVersion,
   readClaudePlugin,
 } from "../../lib/claude-plugin.js";
+import {
+  describeContentFlags,
+  findContentFlagsOn,
+} from "../../lib/claude-settings.js";
 import { getApiUrl, isLoggedIn } from "../../lib/config.js";
 import { formatAgo } from "../../lib/format.js";
 import { mcpServerUrl } from "../../lib/mcp-server.js";
@@ -236,6 +240,7 @@ async function agentChecks(
   // Only Claude Code applies config `env` over the inherited environment.
   if (entry.agent.id === "claude") {
     checks.push(checkShadowedExports());
+    checks.push(checkContentFlags());
     checks.push(checkClaudePlugin());
   }
 
@@ -397,6 +402,44 @@ function checkShadowedExports(): Check {
       "settings.json is applied over the inherited environment, so these are\n" +
       "      ignored inside Claude Code. Remove them — two sources that\n" +
       "      disagree is how spend lands on the wrong account.",
+  };
+}
+
+export function checkContentFlags(
+  { found, unreadable } = findContentFlagsOn(),
+): Check {
+  const couldNotRead = unreadable.length
+    ? `couldn't read ${unreadable.join(", ")}`
+    : null;
+  if (found.length === 0 && !couldNotRead) {
+    return {
+      label: "Content",
+      ok: true,
+      detail: "prompts, responses, tool details and API bodies stay redacted",
+    };
+  }
+  if (found.length === 0) {
+    return {
+      label: "Content",
+      ok: "warn",
+      detail: `${couldNotRead}, which may turn a content flag on`,
+      fix: "Claude Code refuses to start while a managed settings file is not\n      valid JSON. Ask whoever deploys it to fix it.",
+    };
+  }
+  return {
+    label: "Content",
+    ok: "warn",
+    detail: [`on: ${describeContentFlags(found)}`, couldNotRead]
+      .filter(Boolean)
+      .join("; "),
+    fix:
+      "Unset these or set them to 0, then run 'clocktopus agent setup'. While\n" +
+      "      on, Claude Code exports prompt text, tool input or whole\n" +
+      "      conversations with the telemetry Clocktopus receives." +
+      (found.some((flag) => flag.managed)
+        ? "\n      A managed settings file is your organisation's policy and\n" +
+          "      overrides setup: ask whoever deploys it to turn the flag off."
+        : ""),
   };
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { diagnose } from "./status";
+import { contentFlagCallout, diagnose } from "./status";
 
 /**
  * The callouts `agent status` prints under the lane table.
@@ -87,5 +87,58 @@ describe("diagnose", () => {
     });
 
     expect(callouts[0]).toContain("Nothing has ever arrived");
+  });
+});
+
+describe("contentFlagCallout", () => {
+  it("says nothing when every content flag is off", () => {
+    expect(contentFlagCallout({ found: [], unreadable: [] })).toBeNull();
+  });
+
+  it("names each flag that is on and where it is set", () => {
+    const callout = contentFlagCallout({
+      found: [
+        {
+          key: "OTEL_LOG_USER_PROMPTS",
+          value: "1",
+          source: "the environment",
+          managed: false,
+        },
+      ],
+      unreadable: [],
+    });
+
+    expect(callout).toContain("OTEL_LOG_USER_PROMPTS=1 in the environment");
+    expect(callout).toContain("clocktopus agent setup");
+  });
+
+  it("names a managed settings file that turns a flag on", () => {
+    const callout = contentFlagCallout({
+      found: [
+        {
+          key: "OTEL_LOG_TOOL_CONTENT",
+          value: "true",
+          source: "/etc/claude-code/managed-settings.json",
+          managed: true,
+        },
+      ],
+      unreadable: [],
+    });
+
+    expect(callout).toContain(
+      "OTEL_LOG_TOOL_CONTENT=true in /etc/claude-code/managed-settings.json",
+    );
+    expect(callout).toContain("managed settings file");
+  });
+
+  it("says when a managed settings file could not be read", () => {
+    const callout = contentFlagCallout({
+      found: [],
+      unreadable: ["/etc/claude-code/managed-settings.json"],
+    });
+
+    expect(callout).toContain(
+      "Couldn't read Claude Code's managed settings: /etc/claude-code/managed-settings.json",
+    );
   });
 });

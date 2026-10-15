@@ -10,7 +10,9 @@ npm install -g @blastin-dev/clocktopus-cli
 clocktopus init
 ```
 
-What each command does is in [`apps/cli/README.md`](apps/cli/README.md).
+What each command does is in [`apps/cli/README.md`](apps/cli/README.md), and
+what each agent sends to Clocktopus, field by field, is in its
+[What leaves your machine](apps/cli/README.md#what-leaves-your-machine) section.
 
 ## Where this code comes from
 

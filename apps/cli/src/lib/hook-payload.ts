@@ -14,6 +14,8 @@ const HookPayloadSchema = z
     duration_ms: z.number().int().nonnegative().optional().catch(undefined),
     source: z.string().optional().catch(undefined),
     reason: z.string().optional().catch(undefined),
+    // Read locally for Codex's spend (`reportCodexSpend`), never sent.
+    transcript_path: z.string().min(1).nullable().optional().catch(undefined),
   })
   .catch({ workspace_roots: [], hook_event_name: "" });
 
@@ -34,5 +36,6 @@ export function readHookPayload(
     durationMs: payload.duration_ms ?? null,
     source: payload.source,
     reason: payload.reason,
+    transcriptPath: payload.transcript_path ?? null,
   };
 }
