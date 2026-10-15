@@ -3,8 +3,9 @@
 ## How changes get in
 
 This repository is a copy of the CLI's part of the private Clocktopus monorepo,
-synced from it on every change, with the same folder layout. Pull requests are
-welcome. Nothing is merged here: a maintainer applies an accepted pull request
+with the same folder layout. `develop` is synced from it on every change, and
+`main` holds the newest release. Pull requests are welcome; open them against
+`develop`. Nothing is merged here: a maintainer applies an accepted pull request
 to the monorepo as a patch, with you as the commit's author, and the next sync
 brings it back here.
 
