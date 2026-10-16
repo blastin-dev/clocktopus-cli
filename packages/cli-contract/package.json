@@ -1,6 +1,6 @@
 {
   "name": "@repo/cli-contract",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "license": "MIT",
   "description": "What the Clocktopus CLI and server exchange: wire schemas and the parsing rules both sides apply",
   "private": true,
