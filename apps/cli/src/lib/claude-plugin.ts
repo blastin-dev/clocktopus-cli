@@ -140,8 +140,10 @@ export const runClaude: ClaudeRunner = (args) => {
   }
 };
 
-// Adding a marketplace that is already known, and installing a plugin that is
-// already installed, both succeed, so setup can run any number of times.
+// Adding a marketplace that is already known, installing a plugin that is
+// already installed, and updating one that is current all succeed, so setup can
+// run any number of times. `install` leaves an installed plugin at its cached
+// version, so only `update` moves it to the version just written to the folder.
 export function installClaudePlugin(input: {
   version: string;
   apiUrl: string;
@@ -165,6 +167,7 @@ export function installClaudePlugin(input: {
   for (const args of [
     ["plugin", "marketplace", "add", targetDir],
     ["plugin", "install", CLAUDE_PLUGIN_ID],
+    ["plugin", "update", CLAUDE_PLUGIN_ID],
   ]) {
     const result = run(args);
     if (!result.ok) {

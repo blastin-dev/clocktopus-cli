@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.1](https://github.com/blastin-dev/clocktopus/compare/cli-v0.8.0...cli-v0.8.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* **clk-27:** update an installed Claude Code plugin to the CLI's version on setup ([9f14f45](https://github.com/blastin-dev/clocktopus/commit/9f14f45245672b9a6f66ca280194836d18d33092))
+* **clk-27:** update an installed Claude Code plugin to the CLI's version on setup ([e1e8dc6](https://github.com/blastin-dev/clocktopus/commit/e1e8dc6367eded9a0f8ff0d4aa384a602d7ed297))
+
 ## [0.8.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.7.1...cli-v0.8.0) (2026-10-15)
 
 

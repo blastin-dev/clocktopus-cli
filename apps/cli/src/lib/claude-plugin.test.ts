@@ -78,7 +78,7 @@ describe("buildMarketplace", () => {
 });
 
 describe("installClaudePlugin", () => {
-  it("adds the local marketplace, then installs the plugin from it", () => {
+  it("adds the local marketplace, then installs and updates the plugin from it", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "clocktopus-mkt-"));
     const { calls, run } = recorder();
 
@@ -93,6 +93,7 @@ describe("installClaudePlugin", () => {
     expect(calls).toEqual([
       ["plugin", "marketplace", "add", targetDir],
       ["plugin", "install", CLAUDE_PLUGIN_ID],
+      ["plugin", "update", CLAUDE_PLUGIN_ID],
     ]);
   });
 

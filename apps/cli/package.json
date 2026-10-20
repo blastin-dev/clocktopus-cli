@@ -1,7 +1,16 @@
 {
   "name": "@blastin-dev/clocktopus-cli",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/blastin-dev/clocktopus-cli.git",
+    "directory": "apps/cli"
+  },
+  "homepage": "https://github.com/blastin-dev/clocktopus-cli#readme",
+  "bugs": {
+    "url": "https://github.com/blastin-dev/clocktopus-cli/issues"
+  },
   "type": "module",
   "bin": {
     "clocktopus": "./dist/bin/clocktopus.js"
