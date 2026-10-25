@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.8.1...cli-v0.9.0) (2026-10-25)
+
+
+### Features
+
+* **clk-33:** keep the time of each prompt from interactive Claude Code sessions ([#485](https://github.com/blastin-dev/clocktopus/issues/485)) ([f15a1ed](https://github.com/blastin-dev/clocktopus/commit/f15a1edc1b1c856be71d8067b19e1e22f630f298))
+
+
+### Bug Fixes
+
+* **clk-52:** patch npm security advisories ([9b688f7](https://github.com/blastin-dev/clocktopus/commit/9b688f784c5a93b7a842fca7213d1fac986b92e7))
+* **deps:** clear the high audit advisories ([1c2fadc](https://github.com/blastin-dev/clocktopus/commit/1c2fadc21a480feb7d21f45bc44f50a089d79d64))
+
 ## [0.8.1](https://github.com/blastin-dev/clocktopus/compare/cli-v0.8.0...cli-v0.8.1) (2026-10-20)
 
 
