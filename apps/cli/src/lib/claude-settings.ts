@@ -151,8 +151,9 @@ export function buildTelemetryEnv(input: {
   return {
     CLAUDE_CODE_ENABLE_TELEMETRY: "1",
     OTEL_METRICS_EXPORTER: "otlp",
-    // Carries sub-agent runtime, which `claude_code.active_time.total` omits; the
-    // receiver reads only `subagent_completed` from it.
+    // Carries sub-agent runtime, which `claude_code.active_time.total` omits, and
+    // prompt times; the receiver reads only `subagent_completed` and the time of
+    // each `user_prompt` from it.
     OTEL_LOGS_EXPORTER: "otlp",
     // The receiver rejects protobuf with 415.
     OTEL_EXPORTER_OTLP_PROTOCOL: "http/json",
