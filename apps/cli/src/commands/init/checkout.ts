@@ -1,6 +1,7 @@
 import { stripRemoteCredentials } from "@repo/cli-contract/remote-url";
 
 import type { Checkout, InitDeps } from "./types.js";
+import { resolveSshHostAlias } from "../../lib/ssh-host-alias.js";
 
 export type ParsedRemote = {
   provider: "github" | "bitbucket";
@@ -52,7 +53,12 @@ export function readCheckout(deps: Pick<InitDeps, "run">): Checkout {
   };
   const origin = output(["remote", "get-url", "origin"]);
   // Every request `init` makes names the repository by this remote.
-  const remote = origin && stripRemoteCredentials(origin);
+  const remote =
+    origin &&
+    resolveSshHostAlias(stripRemoteCredentials(origin), (host) => {
+      const result = deps.run("ssh", ["-G", "--", host]);
+      return result.ok ? result.stdout : undefined;
+    });
   return {
     remote,
     repository: parseRemote(remote),

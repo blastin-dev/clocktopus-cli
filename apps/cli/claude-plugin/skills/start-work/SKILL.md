@@ -40,6 +40,8 @@ OpenCode.
 Get the remote with `git remote get-url origin`, then call
 `get_repository_context` and `next_task`, each with it as `repositoryUrl`;
 give `get_repository_context` the current branch as `branch` too.
+When the Clocktopus line at session start gives a resolved URL for an SSH
+host alias, use that instead.
 When the user named a goal by its number (`G-3`, shown on the goal's card in
 Clocktopus), pass it to `next_task` as `goalId`.
 

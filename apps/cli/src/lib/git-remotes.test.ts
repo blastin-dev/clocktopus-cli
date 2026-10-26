@@ -93,4 +93,16 @@ describe("parseGitRemotes", () => {
     ]);
     expect(urls.join(" ")).not.toContain("ghp_fake0token1");
   });
+
+  it("resolves each remote before deduplicating, so an alias and its real host collapse", () => {
+    const urls = parseGitRemotes(
+      [
+        "origin\tgit@github-work:acme-co/portal.git (fetch)",
+        "origin\tgit@github.com:acme-co/portal.git (push)",
+      ].join("\n"),
+      (remote) => remote.replace("github-work", "github.com"),
+    );
+
+    expect(urls).toEqual(["git@github.com:acme-co/portal.git"]);
+  });
 });

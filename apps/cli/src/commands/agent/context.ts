@@ -1,10 +1,13 @@
 import { execFileSync } from "node:child_process";
+import { stripRemoteCredentials } from "@repo/cli-contract/remote-url";
 import { extractTaskKeyFromBranch } from "@repo/cli-contract/task-key";
 
 import type { AgentProviderId } from "../../lib/agents.js";
 import { skillNameFor } from "../../lib/agent-skills.js";
 import { AGENTS } from "../../lib/agents.js";
+import { readSshConfig } from "../../lib/git.js";
 import { readHookPayload } from "../../lib/hook-payload.js";
+import { resolveSshHostAlias } from "../../lib/ssh-host-alias.js";
 
 // A synchronous SessionStart hook: Claude Code and Codex add what it prints to
 // the session's context, and Cursor adds the `additional_context` of the JSON it
@@ -24,10 +27,12 @@ export async function contextCommand(options: {
       raw ? JSON.parse(raw) : {},
       process.env.CURSOR_PROJECT_DIR,
     );
+    const cwd = payload.cwd ?? process.cwd();
     const line = sessionContext({
       provider,
       sessionId: payload.sessionId ?? undefined,
-      branch: currentBranch(payload.cwd ?? process.cwd()),
+      branch: currentBranch(cwd),
+      resolvedOrigin: resolvedOrigin(cwd),
     });
     if (!line) return;
     process.stdout.write(
@@ -41,16 +46,23 @@ export async function contextCommand(options: {
 }
 
 // Null outside a git repository. A detached HEAD reads as a branch naming no
-// task.
+// task. `resolvedOrigin` is set only when `origin` goes through an SSH host
+// alias, whose remote the Clocktopus MCP tools can't match.
 export function sessionContext(input: {
   provider: AgentProviderId;
   sessionId: string | undefined;
   branch: string | null | undefined;
+  resolvedOrigin?: string;
 }) {
   if (input.branch === null) return null;
-  const session = input.sessionId
-    ? ` Session id: ${input.sessionId}, agent ${input.provider}.`
+  const repository = input.resolvedOrigin
+    ? ` Its origin goes through an SSH host alias: pass ${input.resolvedOrigin} as \`repositoryUrl\` to Clocktopus tools, not \`git remote get-url origin\`.`
     : "";
+  const session = `${repository}${
+    input.sessionId
+      ? ` Session id: ${input.sessionId}, agent ${input.provider}.`
+      : ""
+  }`;
   const key = extractTaskKeyFromBranch(input.branch);
   if (key) {
     return `Clocktopus: branch ${input.branch} carries task ${key}, so this session's commits, pull requests and agent spend count towards it.${session}`;
@@ -60,6 +72,14 @@ export function sessionContext(input: {
       ? "HEAD is detached"
       : `branch ${input.branch} names no task`;
   return `Clocktopus: ${where}, so this session's work counts towards no task. Before changing code, use the ${skillNameFor(input.provider, "start-work")} skill to pick up or create the task.${session}`;
+}
+
+function resolvedOrigin(cwd: string) {
+  const origin = git(cwd, ["remote", "get-url", "origin"]);
+  if (!origin) return undefined;
+  const remote = stripRemoteCredentials(origin);
+  const resolved = resolveSshHostAlias(remote, readSshConfig);
+  return resolved === remote ? undefined : resolved;
 }
 
 // Undefined on a detached HEAD, null outside a repository. `symbolic-ref`

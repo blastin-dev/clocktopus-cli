@@ -499,18 +499,18 @@ git state and prints to the session.
 
 The session report, from every agent:
 
-| Field                               | Value                                                                                                                                         |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provider`                          | `claude_code`, `codex_cli`, `opencode` or `cursor`                                                                                            |
-| `session_id`, `hook_event_name`     | The agent's session id; `SessionStart` or `SessionEnd`                                                                                        |
-| `cwd`                               | The session's directory, as `~/…` when it is under your home directory ([`src/lib/home-relative-path.ts`](src/lib/home-relative-path.ts))     |
-| `source`, `reason`                  | The start source and end reason the agent passes its hook, when it passes one                                                                 |
-| `repository_url`, `repository_urls` | Every git remote URL of the checkout, `origin` first, as `git remote -v` prints it less any credential in it (below)                          |
-| `git_branch`                        | The checked-out branch                                                                                                                        |
-| `git_head_before`, `git_head_after` | The HEAD commit at the session's start and end                                                                                                |
-| `commit_shas`                       | Up to 200 commit SHAs made in the checkout during the session, from its reflog ([`src/lib/declared-commits.ts`](src/lib/declared-commits.ts)) |
-| `duration_ms`                       | Cursor only: the session length Cursor reports at its end                                                                                     |
-| `ended_at`                          | Only when closing a session that never sent `SessionEnd`: the time it was last active                                                         |
+| Field                               | Value                                                                                                                                                     |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `provider`                          | `claude_code`, `codex_cli`, `opencode` or `cursor`                                                                                                        |
+| `session_id`, `hook_event_name`     | The agent's session id; `SessionStart` or `SessionEnd`                                                                                                    |
+| `cwd`                               | The session's directory, as `~/…` when it is under your home directory ([`src/lib/home-relative-path.ts`](src/lib/home-relative-path.ts))                 |
+| `source`, `reason`                  | The start source and end reason the agent passes its hook, when it passes one                                                                             |
+| `repository_url`, `repository_urls` | Every git remote URL of the checkout, `origin` first, as `git remote -v` prints it less any credential in it and with any SSH host alias resolved (below) |
+| `git_branch`                        | The checked-out branch                                                                                                                                    |
+| `git_head_before`, `git_head_after` | The HEAD commit at the session's start and end                                                                                                            |
+| `commit_shas`                       | Up to 200 commit SHAs made in the checkout during the session, from its reflog ([`src/lib/declared-commits.ts`](src/lib/declared-commits.ts))             |
+| `duration_ms`                       | Cursor only: the session length Cursor reports at its end                                                                                                 |
+| `ended_at`                          | Only when closing a session that never sent `SessionEnd`: the time it was last active                                                                     |
 
 No remote URL is sent with a credential in it. The CLI drops the user name,
 password or token from an `https://` remote (`https://user:<token>@host/…` is
@@ -521,6 +521,14 @@ in [`packages/cli-contract/src/remote-url.ts`](../../packages/cli-contract/src/r
 [`src/lib/git-remotes.ts`](src/lib/git-remotes.ts) and
 [`src/commands/init/checkout.ts`](src/commands/init/checkout.ts); the receiver
 applies it too before it reads or stores a remote.
+
+A remote through an SSH host alias from `~/.ssh/config`
+(`git@github-work:acme-co/portal.git`) is sent with the host the alias points
+to, the `hostname` `ssh -G github-work` prints, because only this machine can
+resolve it. The session hooks, `clocktopus init` and the SessionStart context
+line all resolve it, through
+[`src/lib/ssh-host-alias.ts`](src/lib/ssh-host-alias.ts). `url.<base>.insteadOf`
+rewrites need nothing extra: git applies them before printing a remote.
 
 The hook reads only `session_id`, `cwd` (or Cursor's `workspace_roots`),
 `hook_event_name`, `duration_ms`, `source`, `reason` and `transcript_path` from

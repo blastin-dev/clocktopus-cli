@@ -47,6 +47,19 @@ describe("sessionContext", () => {
     );
   });
 
+  it("gives the resolved origin when it goes through an SSH host alias", () => {
+    expect(
+      sessionContext({
+        provider: "claude_code",
+        sessionId: "s-1",
+        branch: "dana/acme-42-export",
+        resolvedOrigin: "git@github.com:acme-co/portal.git",
+      }),
+    ).toBe(
+      "Clocktopus: branch dana/acme-42-export carries task ACME-42, so this session's commits, pull requests and agent spend count towards it. Its origin goes through an SSH host alias: pass git@github.com:acme-co/portal.git as `repositoryUrl` to Clocktopus tools, not `git remote get-url origin`. Session id: s-1, agent claude_code.",
+    );
+  });
+
   it("says nothing outside a git repository", () => {
     expect(
       sessionContext({

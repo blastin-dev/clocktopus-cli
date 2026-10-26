@@ -89,7 +89,9 @@ export function attributionCheck(status: RepoStatusResponse): RepoCheck {
         detail: "remote is not GitHub or Bitbucket",
         fix:
           "Spend from this repository is recorded but cannot be attributed —\n" +
-          "      only GitHub and Bitbucket remotes resolve to a project.",
+          "      only GitHub and Bitbucket remotes resolve to a project. A remote\n" +
+          "      through an SSH host alias resolves when 'ssh -G <alias>' names\n" +
+          "      github.com or bitbucket.org as its hostname.",
       };
 
     case "no_repository":
