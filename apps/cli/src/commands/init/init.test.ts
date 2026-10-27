@@ -678,7 +678,7 @@ describe("agents step", () => {
 
     expect(deps.runAgentSetup).toHaveBeenCalledWith({
       agent: ["claude"],
-      component: ["mcp", "skills"],
+      component: ["mcp", "skills", "panel"],
       showRepoStatus: false,
     });
   });

@@ -69,19 +69,21 @@ enabled), the `task` tool in OpenCode. For each task, in order:
    [`SKILL.md`](SKILL.md) describes, so the spend from then on, the
    subagent's included, counts toward that task.
 2. Start the subagent in the run's worktree. Its prompt names the task's key
-   and title, its branch, the branch to stack it on, and the repository's
-   instructions for commits and checks. It asks the subagent to carry the
+   and title, its branch, the branch to stack it on, the goal's other tasks
+   in order, and the repository's instructions for commits and checks. It asks the subagent to carry the
    task to an open pull request as start-work's run mode does (read the task,
    check the code, do the work, run the checks, commit with the key in the
    scope, push, open the pull request, update a Clocktopus task's summary to
-   what it delivers), without calling `link_session` itself, and to stop and
-   report rather than guess when a decision is open.
+   what it delivers, review it with the review-work skill), without calling
+   `link_session` itself, and to stop and report rather than guess when a
+   decision is open.
 3. While it runs, answer the user, and wait for its notification (`wait` in
    Codex) rather than polling. A subagent the harness can only run in the
    foreground, such as OpenCode's `task`, holds the main thread until it
    reports.
-4. When it reports, check that its pull request is open and its checks pass,
-   tell the user in one line which task finished, with its pull request, and
+4. When it reports, check that its pull request is open, its checks pass and
+   its review comment is posted, tell the user in one line which task
+   finished, with its pull request and what the review left on it, and
    which starts next, and go on with a new subagent. Never start a task's
    subagent while another is still running.
 

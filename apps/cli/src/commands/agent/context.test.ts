@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { sessionContext } from "./context.js";
+import { sessionContext, upgradeNote } from "./context.js";
 
 describe("sessionContext", () => {
   it("names the task a branch carries, with the session id and agent", () => {
@@ -68,5 +68,21 @@ describe("sessionContext", () => {
         branch: null,
       }),
     ).toBeNull();
+  });
+});
+
+describe("upgradeNote", () => {
+  it("names the newer version and the command to upgrade with", () => {
+    const note = upgradeNote("0.9.0", "0.10.0");
+    expect(note).toContain("Clocktopus CLI is 0.9.0 and 0.10.0 is out");
+    expect(note).toContain("`clocktopus upgrade --yes`");
+  });
+
+  it.each([
+    ["0.10.0", "0.10.0"],
+    ["0.10.1", "0.10.0"],
+    ["0.9.0", null],
+  ])("says nothing for CLI %s with latest %s", (current, latest) => {
+    expect(upgradeNote(current, latest)).toBeNull();
   });
 });

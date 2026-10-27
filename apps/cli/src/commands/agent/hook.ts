@@ -11,7 +11,9 @@ import {
   recordLastRun,
   writeStartState,
 } from "../../lib/agent-hook-state.js";
+import { refreshIfUpgraded } from "../../lib/agent-refresh.js";
 import { AGENTS } from "../../lib/agents.js";
+import { rememberLatestVersion } from "../../lib/config.js";
 import {
   buildReflogArgs,
   parseReflogCommits,
@@ -372,6 +374,7 @@ async function run(
   });
 
   if (!dryRun) {
+    rememberLatestVersion(result.latest);
     recordLastRun({
       at: new Date().toISOString(),
       event: eventName,
@@ -408,11 +411,14 @@ export async function hookCommand(options: {
     const agent =
       AGENTS.find((candidate) => candidate.provider === options.provider) ??
       AGENTS[0]!;
-    await run(
-      agent,
-      options.detached === true,
-      readHookDryRun(options.dryRun, process.env.CLOCKTOPUS_HOOK_DRY_RUN),
+    const dryRun = readHookDryRun(
+      options.dryRun,
+      process.env.CLOCKTOPUS_HOOK_DRY_RUN,
     );
+    await run(agent, options.detached === true, dryRun);
+    // On a machine only agents drive, the hook is the first command a new
+    // version runs.
+    if (!dryRun) refreshIfUpgraded();
   } catch {
     // Silent: see the host contract at the top of this file.
   }

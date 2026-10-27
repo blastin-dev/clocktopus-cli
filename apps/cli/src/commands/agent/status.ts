@@ -310,7 +310,7 @@ function claudePluginLine(): string {
   }
   return labelled(
     "Plugin",
-    `${CLAUDE_PLUGIN_ID} ${plugin.version ?? ""}${plugin.enabled ? "" : " (disabled)"}`.trim(),
+    `${`${CLAUDE_PLUGIN_ID} ${plugin.version ?? ""}`.trim()}, ${plugin.panel ? "with" : "without"} the panel${plugin.enabled ? "" : " (disabled)"}`,
   );
 }
 

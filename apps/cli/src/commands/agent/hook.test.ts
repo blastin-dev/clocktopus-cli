@@ -17,6 +17,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { hookCommand } from "./hook";
 
+// The real ones would write the developer's own CLI config, and start
+// `agent refresh` from the test runner's script.
+const { refreshIfUpgraded, rememberLatestVersion } = vi.hoisted(() => ({
+  refreshIfUpgraded: vi.fn(),
+  rememberLatestVersion: vi.fn(),
+}));
+vi.mock("../../lib/agent-refresh.js", () => ({ refreshIfUpgraded }));
+vi.mock("../../lib/config.js", () => ({ rememberLatestVersion }));
+
 const ENDPOINT = "https://otel.example.com";
 const TOKEN = "ctop_agt_testtoken";
 const CODEX_SESSION = "0e5d7c1a-4b2f-7a90-9c3e-5f1b2d8a6e47";
@@ -77,6 +86,8 @@ beforeEach(() => {
   process.env.CLOCKTOPUS_INGEST_TOKEN = TOKEN;
   process.env.CLOCKTOPUS_OTEL_ENDPOINT = ENDPOINT;
   process.env.CLOCKTOPUS_HOOK_DRY_RUN = "1";
+  refreshIfUpgraded.mockClear();
+  rememberLatestVersion.mockClear();
 
   repo = join(home, "code", "acme-portal");
   mkdirSync(repo, { recursive: true });
@@ -253,5 +264,30 @@ describe("agent hook dry run", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(stderr).toEqual([]);
     expect(existsSync(join(stateDir(), "s-1.sha"))).toBe(true);
+  });
+
+  it("remembers the newest CLI the receiver names and refreshes after an upgrade", async () => {
+    delete process.env.CLOCKTOPUS_HOOK_DRY_RUN;
+    fetch.mockResolvedValue(
+      new Response("{}", {
+        status: 202,
+        headers: { "X-Clocktopus-Cli-Latest": "0.10.0" },
+      }),
+    );
+    pipe({ hook_event_name: "SessionStart", session_id: "s-1", cwd: repo });
+
+    await hookCommand({ provider: "claude_code" });
+
+    expect(rememberLatestVersion).toHaveBeenCalledWith("0.10.0");
+    expect(refreshIfUpgraded).toHaveBeenCalledTimes(1);
+  });
+
+  it("neither remembers nor refreshes on a dry run", async () => {
+    pipe({ hook_event_name: "SessionStart", session_id: "s-1", cwd: repo });
+
+    await hookCommand({ provider: "claude_code" });
+
+    expect(rememberLatestVersion).not.toHaveBeenCalled();
+    expect(refreshIfUpgraded).not.toHaveBeenCalled();
   });
 });

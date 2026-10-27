@@ -1,5 +1,6 @@
 import { appendFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { CLI_LATEST_HEADER } from "@repo/cli-contract/cli-version";
 
 const TIMEOUT_MS = 4000;
 
@@ -45,19 +46,24 @@ export function noteHookDryRun(dryRun: HookDryRun | null, message: string) {
 
 // Every request `agent hook` makes goes through here, so a dry run prints the same
 // bytes a real run sends. The token is never printed. A dry run returns a null status.
+// `latest` is the newest CLI the receiver names, null when it names none.
 export async function postHookRequest(input: {
   endpoint: string;
   path: `/${string}`;
   token: string;
   body: unknown;
   dryRun: HookDryRun | null;
-}): Promise<{ status: number | null; error: string | null }> {
+}): Promise<{
+  status: number | null;
+  error: string | null;
+  latest: string | null;
+}> {
   const url = `${input.endpoint.replace(/\/$/, "")}${input.path}`;
   const body = JSON.stringify(input.body);
 
   if (input.dryRun) {
     write(input.dryRun, `POST ${url}\n${body}\n`);
-    return { status: null, error: null };
+    return { status: null, error: null, latest: null };
   }
 
   const controller = new AbortController();
@@ -72,12 +78,17 @@ export async function postHookRequest(input: {
       body,
       signal: controller.signal,
     });
-    return { status: response.status, error: null };
+    return {
+      status: response.status,
+      error: null,
+      latest: response.headers.get(CLI_LATEST_HEADER),
+    };
   } catch (error) {
     // Recorded for `agent doctor` rather than surfaced to the session.
     return {
       status: null,
       error: error instanceof Error ? error.message : "request failed",
+      latest: null,
     };
   } finally {
     clearTimeout(timer);

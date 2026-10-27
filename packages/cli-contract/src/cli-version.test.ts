@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isCliVersionBelow } from "./cli-version";
+import { isCliVersionBelow, isVersionBelow } from "./cli-version";
 
 describe("isCliVersionBelow", () => {
   it.each([
@@ -38,4 +38,22 @@ describe("isCliVersionBelow", () => {
       expect(isCliVersionBelow("0.7.1", other)).toBe(false);
     },
   );
+});
+
+describe("isVersionBelow", () => {
+  it("compares each part as a number", () => {
+    expect(isVersionBelow("2.1.99", "2.1.310")).toBe(true);
+    expect(isVersionBelow("2.1.310", "2.1.310")).toBe(false);
+    expect(isVersionBelow("10.0.0", "9.9.9")).toBe(false);
+  });
+
+  it("is null when either side names no major.minor.patch", () => {
+    expect(isVersionBelow("2.1", "2.1.310")).toBeNull();
+    expect(isVersionBelow("2.1.310", "latest")).toBeNull();
+  });
+
+  it("reads 0.0.0 as a version, unlike isCliVersionBelow", () => {
+    expect(isVersionBelow("0.0.0", "0.1.0")).toBe(true);
+    expect(isCliVersionBelow("0.0.0", "0.1.0")).toBe(false);
+  });
 });

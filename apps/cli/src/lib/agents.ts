@@ -74,7 +74,8 @@ export type AgentId = "claude" | "codex" | "opencode" | "cursor";
 
 // What `agent setup` lets the user choose. Telemetry and the session hooks are
 // always installed: the hook is the only source of a session's repository.
-export const AGENT_COMPONENTS = ["mcp", "skills"] as const;
+// `panel` is Claude Code's session panel, which reads the MCP server.
+export const AGENT_COMPONENTS = ["mcp", "skills", "panel"] as const;
 export type AgentComponent = (typeof AGENT_COMPONENTS)[number];
 
 /** How the ingested session is labelled — must match `AgentProvider` in core. */

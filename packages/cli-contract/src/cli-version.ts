@@ -6,7 +6,11 @@ export const CLI_VERSION_HEADER = "X-Clocktopus-Cli-Version";
 // published CLI version here, so a CLI behind it can say so.
 export const CLI_LATEST_HEADER = "X-Clocktopus-Cli-Latest";
 
-export const CLI_UPGRADE_COMMAND =
+// Upgrades the CLI with whatever installed it; see `apps/cli/src/lib/install-method.ts`.
+export const CLI_UPGRADE_COMMAND = "clocktopus upgrade";
+
+// For a CLI too old to have `CLI_UPGRADE_COMMAND`, as the server's refusal can reach.
+export const CLI_NPM_UPGRADE_COMMAND =
   "npm install -g @blastin-dev/clocktopus-cli@latest";
 
 // `major.minor.patch`, with any prerelease or build suffix ignored, so a
@@ -19,6 +23,18 @@ function parseVersion(version: string): [number, number, number] | null {
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
+// Null when either names no `major.minor.patch`.
+export function isVersionBelow(version: string, other: string) {
+  const current = parseVersion(version);
+  const target = parseVersion(other);
+  if (!current || !target) return null;
+  const [major, minor, patch] = current;
+  const [targetMajor, targetMinor, targetPatch] = target;
+  if (major !== targetMajor) return major < targetMajor;
+  if (minor !== targetMinor) return minor < targetMinor;
+  return patch < targetPatch;
+}
+
 // A missing, unparseable or `0.0.0` version is unknown, and an unknown version
 // is never below another: `0.0.0` is what the CLI reports when it cannot read
 // its own `package.json`. An unparseable `other` makes nothing below it.
@@ -27,14 +43,6 @@ export function isCliVersionBelow(
   other: string | null,
 ): boolean {
   if (version === null || other === null) return false;
-  const current = parseVersion(version);
-  const target = parseVersion(other);
-  if (!current || !target) return false;
-  if (current.every((part) => part === 0)) return false;
-
-  const [major, minor, patch] = current;
-  const [targetMajor, targetMinor, targetPatch] = target;
-  if (major !== targetMajor) return major < targetMajor;
-  if (minor !== targetMinor) return minor < targetMinor;
-  return patch < targetPatch;
+  if (parseVersion(version)?.every((part) => part === 0)) return false;
+  return isVersionBelow(version, other) ?? false;
 }

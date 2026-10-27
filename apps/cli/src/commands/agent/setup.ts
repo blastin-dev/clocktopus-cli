@@ -26,8 +26,14 @@ import {
   CLAUDE_PLUGIN_ID,
   cliVersion,
   installClaudePlugin,
+  panelUnsupportedReason,
 } from "../../lib/claude-plugin.js";
-import { getApiUrl, isLoggedIn, setAgentConfig } from "../../lib/config.js";
+import {
+  getApiUrl,
+  isLoggedIn,
+  setAgentConfig,
+  setLastRunVersion,
+} from "../../lib/config.js";
 import { contextCommandFor } from "../../lib/context-hook.js";
 import { labelled } from "../../lib/format.js";
 import { mcpServerUrl } from "../../lib/mcp-server.js";
@@ -117,6 +123,9 @@ export async function runAgentSetup(
   if (componentSelection.status !== "selected") return componentSelection;
   const mcp = componentSelection.values.includes("mcp");
   const skills = componentSelection.values.includes("skills");
+  const panel = componentSelection.values.includes("panel");
+  // Asked for by name rather than included by default, so leaving it out says why.
+  const isPanelNamed = panel && (options.component?.length ?? 0) > 0;
 
   let email: string | null = null;
   let userId: string;
@@ -228,6 +237,8 @@ export async function runAgentSetup(
     endpoint,
     configuredAt: new Date().toISOString(),
   });
+  // What setup just wrote is this version's, so there is nothing to refresh.
+  setLastRunVersion(cliVersion());
 
   const check = await verifyReceiver(endpoint, token);
 
@@ -254,13 +265,18 @@ export async function runAgentSetup(
     }
     for (const backup of backupPaths) console.log(labelled("Backup", backup));
     if (entry.agent.id === "claude") {
-      if (mcp || skills) {
-        for (const line of setUpClaudePlugin(entry.installed, { mcp, skills }))
-          console.log(line);
+      for (const line of setUpClaudePlugin(entry, { mcp, skills, panel }))
+        console.log(line);
+    } else {
+      if (mcp && warnings.length === 0) {
+        console.log(labelled("MCP server", mcpServerUrl(apiUrl)));
+        console.log(
+          labelled("", `Sign in once with: ${entry.agent.mcpSignIn}`),
+        );
       }
-    } else if (mcp && warnings.length === 0) {
-      console.log(labelled("MCP server", mcpServerUrl(apiUrl)));
-      console.log(labelled("", `Sign in once with: ${entry.agent.mcpSignIn}`));
+      if (isPanelNamed) {
+        console.log(labelled("Panel", "left out — Claude Code only"));
+      }
     }
     for (const warning of warnings) console.log(labelled("", `✗ ${warning}`));
   }
@@ -330,36 +346,71 @@ function setUpSharedSkills(): string[] {
   }
 }
 
-// Skills and the MCP server ride in the plugin; telemetry and hooks above do
-// not depend on it, so a failure here is reported and setup carries on.
+// Skills, the MCP server and the panel ride in the plugin; telemetry and hooks
+// above do not depend on it, so a failure here is reported and setup carries on.
 function setUpClaudePlugin(
-  claudeOnPath: boolean,
-  include: { mcp: boolean; skills: boolean },
+  entry: AgentSurvey,
+  include: { mcp: boolean; skills: boolean; panel: boolean },
 ): string[] {
-  if (!claudeOnPath) {
+  const notes: string[] = [];
+  let panel = include.panel;
+  // The panel's only source is the plugin's MCP server.
+  if (panel && !include.mcp) {
+    notes.push(
+      labelled(
+        "Panel",
+        "left out — it reads the MCP server, which is not selected",
+      ),
+    );
+    panel = false;
+  }
+  if (!include.mcp && !include.skills) return notes;
+  if (!entry.installed) {
     return [
       labelled(
         "Plugin",
         "skipped — 'claude' is not on PATH; re-run setup once it is",
       ),
+      ...notes,
     ];
+  }
+  const unsupported = panel ? panelUnsupportedReason(entry.version) : null;
+  if (unsupported) {
+    notes.push(
+      labelled(
+        "Panel",
+        `left out — ${unsupported}; update Claude Code and re-run setup`,
+      ),
+    );
+    panel = false;
   }
   const version = cliVersion();
   const result = installClaudePlugin({
     version,
     apiUrl: getApiUrl(),
     ...include,
+    panel,
   });
-  if (!result.ok) return [labelled("Plugin", `✗ ${result.reason}`)];
-  const carries = [
+  if (!result.ok) return [labelled("Plugin", `✗ ${result.reason}`), ...notes];
+  const carries = labelList([
     ...(include.skills ? ["skills"] : []),
     ...(include.mcp ? ["MCP server"] : []),
-  ].join(" and ");
+    ...(panel ? ["panel"] : []),
+  ]);
   return [
     labelled("Plugin", `${CLAUDE_PLUGIN_ID} ${version}  (${carries})`),
     ...(include.mcp
       ? [labelled("", "Sign in to its MCP server with /mcp in Claude Code")]
       : []),
+    ...(panel
+      ? [
+          labelled(
+            "Panel",
+            "/clocktopus-panel opens it; the fullscreen layout docks it beside the conversation",
+          ),
+        ]
+      : []),
+    ...notes,
   ];
 }
 
@@ -479,7 +530,12 @@ async function selectComponents(
       {
         value: "skills",
         label: "Skills",
-        hint: "create-task, start-work, refine and create-goal",
+        hint: "create-task, start-work, review-work, refine and create-goal",
+      },
+      {
+        value: "panel",
+        label: "Session panel",
+        hint: "Claude Code only, with the MCP server: the session's task, attribution and goal",
       },
     ],
     initialValues: [...AGENT_COMPONENTS],

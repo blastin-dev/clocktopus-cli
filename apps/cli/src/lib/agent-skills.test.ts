@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseDocument } from "yaml";
 
 import {
+  hasAgentSkills,
   installAgentSkills,
   readAgentSkills,
   removeAgentSkills,
@@ -37,6 +38,7 @@ describe("installAgentSkills", () => {
       "clocktopus-create-goal",
       "clocktopus-create-task",
       "clocktopus-refine",
+      "clocktopus-review-work",
       "clocktopus-start-work",
     ]);
     const skill = readFileSync(
@@ -78,6 +80,32 @@ describe("installAgentSkills", () => {
     ).toBe("mine");
     expect(existsSync(join(targetDir, "clocktopus-start-work"))).toBe(false);
   });
+
+  it("removes a clocktopus- skill the package no longer ships", () => {
+    mkdirSync(join(targetDir, "clocktopus-retired"));
+    writeFileSync(join(targetDir, "clocktopus-retired", "SKILL.md"), "old");
+
+    installAgentSkills({ targetDir });
+
+    expect(existsSync(join(targetDir, "clocktopus-retired"))).toBe(false);
+    expect(existsSync(join(targetDir, "clocktopus-refine"))).toBe(true);
+  });
+});
+
+describe("hasAgentSkills", () => {
+  it("is true once any clocktopus- skill is installed, and only then", () => {
+    mkdirSync(join(targetDir, "start-work"));
+    expect(hasAgentSkills({ targetDir })).toBe(false);
+
+    mkdirSync(join(targetDir, "clocktopus-refine"));
+    expect(hasAgentSkills({ targetDir })).toBe(true);
+  });
+
+  it("is false where the skills folder doesn't exist", () => {
+    expect(hasAgentSkills({ targetDir: join(targetDir, "missing") })).toBe(
+      false,
+    );
+  });
 });
 
 describe("readAgentSkills", () => {
@@ -86,6 +114,7 @@ describe("readAgentSkills", () => {
       "clocktopus-create-goal",
       "clocktopus-create-task",
       "clocktopus-refine",
+      "clocktopus-review-work",
       "clocktopus-start-work",
     ]);
 
@@ -96,6 +125,7 @@ describe("readAgentSkills", () => {
     expect(skills.installed.sort()).toEqual([
       "clocktopus-create-goal",
       "clocktopus-create-task",
+      "clocktopus-review-work",
       "clocktopus-start-work",
     ]);
     expect(skills).toMatchObject({

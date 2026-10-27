@@ -20,6 +20,12 @@ type AgentConfig = {
 type ConfigSchema = {
   accessToken?: string;
   agent?: AgentConfig;
+  // The version that last ran on this machine, so the first run of another
+  // one refreshes what `agent setup` installed (`lib/agent-refresh.ts`).
+  lastRunVersion?: string;
+  // The newest CLI the server last named in `CLI_LATEST_HEADER`, for
+  // `agent context`, which reads no network.
+  latestVersion?: string;
 };
 
 const config = new Conf<ConfigSchema>({
@@ -76,6 +82,29 @@ export function setAgentConfig(next: AgentConfig): void {
 
 export function clearAgentConfig(): void {
   config.delete("agent");
+}
+
+export function getLastRunVersion(): string | undefined {
+  return config.get("lastRunVersion");
+}
+
+export function setLastRunVersion(version: string): void {
+  config.set("lastRunVersion", version);
+}
+
+export function getLatestVersion(): string | undefined {
+  return config.get("latestVersion");
+}
+
+// Never throws: the hook calls it, and a config it can't write costs only the nudge.
+export function rememberLatestVersion(latest: string | null): void {
+  const version = latest?.trim();
+  if (!version || version === config.get("latestVersion")) return;
+  try {
+    config.set("latestVersion", version);
+  } catch {
+    // Read-only home, or a config another process holds.
+  }
 }
 
 export function getConfigPath(): string {

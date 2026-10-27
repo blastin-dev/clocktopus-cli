@@ -6,7 +6,7 @@ import {
   realpathSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
+import { delimiter, join } from "node:path";
 
 import type { AgentId, AgentProviderId } from "./agents.js";
 import { readInstalledTelemetry, settingsPath } from "./claude-settings.js";
@@ -15,6 +15,12 @@ import {
   cursorCredentialsPath,
   readCursorCredentials,
 } from "./cursor-config.js";
+import {
+  currentInstallMethod,
+  isUpgradable,
+  MISE_INSTALL,
+  runningScript,
+} from "./install-method.js";
 import { opencodePluginPath, readOpencodePlugin } from "./opencode-config.js";
 
 // Claude Code applies `settings.json` `env` over the inherited shell environment, so the
@@ -134,20 +140,25 @@ export function findShadowedExports(cwd = process.cwd()): Array<{
   return found;
 }
 
-// Uses the bare name only when `clocktopus` on PATH resolves to this executable, because
-// hooks run with a PATH that can differ from the interactive shell's. `--provider` is
-// baked in because the hook payload does not name the agent.
+// Under mise, the shim, which outlives each version's folder and needs no PATH.
+// Elsewhere the bare name only when it is this executable on PATH, because
+// hooks run with a PATH that can differ from the shell's.
 export function resolveHookCommand(provider: AgentProviderId): {
   command: string;
   usesAbsolutePath: boolean;
   binaryPath: string | null;
 } {
-  const script = process.argv[1] ? resolve(process.argv[1]) : null;
+  const script = runningScript();
+  const args = hookArgs(provider);
 
-  const quote = (value: string) =>
-    /[\s"']/.test(value) ? `"${value}"` : value;
-
-  const args = `agent hook --provider ${provider}`;
+  const shim = script ? miseShimFor(script) : null;
+  if (shim) {
+    return {
+      command: `${quote(shim)} ${args}`,
+      usesAbsolutePath: false,
+      binaryPath: script,
+    };
+  }
 
   if (script && resolvesOnPath("clocktopus", script)) {
     return {
@@ -158,9 +169,8 @@ export function resolveHookCommand(provider: AgentProviderId): {
   }
 
   if (script) {
-    // `node <script>` because a checkout may not have the executable bit.
     return {
-      command: `${quote(process.execPath)} ${quote(script)} ${args}`,
+      command: absoluteCommand(script, args),
       usesAbsolutePath: true,
       binaryPath: script,
     };
@@ -171,6 +181,56 @@ export function resolveHookCommand(provider: AgentProviderId): {
     usesAbsolutePath: false,
     binaryPath: null,
   };
+}
+
+// What `agent refresh` writes over `installed`: the mise shim when this CLI
+// runs under mise, else `installed`'s own form, so an absolute path never turns
+// bare. Only an install `isUpgradable` moves a hook: npx and checkouts don't last.
+export function refreshedHookCommand(
+  provider: AgentProviderId,
+  installed: string,
+): string {
+  if (!isUpgradable(currentInstallMethod())) return installed;
+  const resolved = resolveHookCommand(provider);
+  if (resolved.binaryPath && miseShimFor(resolved.binaryPath)) {
+    return resolved.command;
+  }
+  if (/^clocktopus\s/.test(installed) || isMiseShimCommand(installed)) {
+    return installed;
+  }
+  return resolved.binaryPath
+    ? absoluteCommand(resolved.binaryPath, hookArgs(provider))
+    : installed;
+}
+
+function isMiseShimCommand(command: string) {
+  return /[/\\]shims[/\\]clocktopus"?\s/.test(command);
+}
+
+function hookArgs(provider: AgentProviderId) {
+  return `agent hook --provider ${provider}`;
+}
+
+function quote(value: string) {
+  return /[\s"']/.test(value) ? `"${value}"` : value;
+}
+
+// `node <script>` because a checkout may not have the executable bit.
+function absoluteCommand(script: string, args: string) {
+  return `${quote(process.execPath)} ${quote(script)} ${args}`;
+}
+
+export function miseShimFor(script: string): string | null {
+  let real: string;
+  try {
+    real = realpathSync(script);
+  } catch {
+    return null;
+  }
+  const dataDir = MISE_INSTALL.exec(real.replaceAll("\\", "/"))?.[1];
+  if (!dataDir) return null;
+  const shim = join(dataDir, "shims", "clocktopus");
+  return existsSync(shim) ? shim : null;
 }
 
 function resolvesOnPath(name: string, expected: string): boolean {

@@ -171,6 +171,9 @@ open the pull request. For a Clocktopus task (`native`), then update its
 summary with `update_task` so it says what the pull request delivers. Tasks
 from a tracker are edited in the tracker.
 
+Then review the work with the review-work skill: it fixes what it is sure of
+and leaves the rest as a comment on the pull request.
+
 When the repository's instructions forbid an agent committing or pushing,
 stop before that step and say so.
 
@@ -181,7 +184,8 @@ Stop and ask the user when:
 - the next step goes beyond a pull request: merging, deploying, applying a
   migration, or closing a task in its tracker.
 
-Finish with the pull request's link and a line on what it delivers.
+Finish with the pull request's link, a line on what it delivers, and what the
+review fixed and left on it.
 
 ## Something else turns up
 

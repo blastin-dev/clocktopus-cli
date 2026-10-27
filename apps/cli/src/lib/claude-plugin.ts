@@ -8,8 +8,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isVersionBelow } from "@repo/cli-contract/cli-version";
 import { z } from "zod";
 
 import { MCP_SERVER_NAME, mcpServerUrl } from "./mcp-server.js";
@@ -57,11 +58,47 @@ export function pluginSourceDir() {
   return join(packageRoot(), "claude-plugin");
 }
 
-const PluginManifestSchema = z.looseObject({ name: z.string() });
+const PluginManifestSchema = z.looseObject({
+  name: z.string(),
+  types: z.string().optional(),
+});
+
+// The Claude Code version the hooks module is type-checked and tested
+// against, which the first line of `types/claude-code/index.d.ts` names (a
+// test holds the two equal). Function hooks are early access and change between
+// releases, so an older Claude Code doesn't get the panel.
+export const PANEL_MIN_CLAUDE_VERSION = "2.1.310";
+
+// Why the panel can't be installed with this Claude Code, or null when it can.
+// `version` is the output of `claude --version`, null when it didn't run.
+export function panelUnsupportedReason(version: string | null) {
+  if (version === null) return "'claude --version' did not run";
+  const found = /\d+\.\d+\.\d+/.exec(version)?.[0];
+  const isBelow = found
+    ? isVersionBelow(found, PANEL_MIN_CLAUDE_VERSION)
+    : null;
+  if (isBelow === null) {
+    return `could not read Claude Code's version from '${version.trim()}'`;
+  }
+  return isBelow
+    ? `Claude Code ${found} is older than ${PANEL_MIN_CLAUDE_VERSION}`
+    : null;
+}
+
+// What `buildMarketplace` leaves out of `claude-plugin/`. `development`
+// type-checks the hooks module in this repository and nothing reads it at run
+// time, so `files` in package.json leaves it out of the package too
+// (`claude-plugin.test.ts` holds the two equal). `panel` is what only the
+// session panel reads: the hooks module, its tests and the state contract
+// `plugin.json` names under `types`.
+export const PLUGIN_PARTS = {
+  development: ["tsconfig.json", join("types", "claude-code")],
+  panel: ["hooks", "tests", "types"],
+};
 
 // Rewrites the whole plugin folder, so a file dropped from the package goes
-// too, and so do the skills or the MCP server when left out. `version` follows
-// the CLI, and the MCP server points at `apiUrl`.
+// too, and so do the skills, the MCP server or the panel when left out.
+// `version` follows the CLI, and the MCP server points at `apiUrl`.
 export function buildMarketplace(input: {
   sourceDir: string;
   targetDir: string;
@@ -69,19 +106,33 @@ export function buildMarketplace(input: {
   apiUrl: string;
   skills?: boolean;
   mcp?: boolean;
+  panel?: boolean;
 }) {
-  const pluginDir = join(input.targetDir, "plugins", PLUGIN_NAME);
+  const pluginDir = marketplacePluginDir(input.targetDir);
   rmSync(pluginDir, { recursive: true, force: true });
-  cpSync(input.sourceDir, pluginDir, { recursive: true });
+  cpSync(input.sourceDir, pluginDir, {
+    recursive: true,
+    filter: (source) =>
+      !PLUGIN_PARTS.development.includes(relative(input.sourceDir, source)),
+  });
   if (input.skills === false) {
     rmSync(join(pluginDir, "skills"), { recursive: true, force: true });
   }
+  if (input.panel === false) {
+    for (const name of PLUGIN_PARTS.panel) {
+      rmSync(join(pluginDir, name), { recursive: true, force: true });
+    }
+  }
 
   const manifestPath = join(pluginDir, ".claude-plugin", "plugin.json");
-  const manifest = PluginManifestSchema.parse(
+  const { types, ...manifest } = PluginManifestSchema.parse(
     JSON.parse(readFileSync(manifestPath, "utf8")),
   );
-  writeJson(manifestPath, { ...manifest, version: input.version });
+  writeJson(manifestPath, {
+    ...manifest,
+    ...(input.panel === false ? {} : { types }),
+    version: input.version,
+  });
   if (input.mcp !== false) {
     writeJson(join(pluginDir, ".mcp.json"), {
       mcpServers: {
@@ -106,6 +157,38 @@ export function buildMarketplace(input: {
     ],
   });
   return { pluginDir };
+}
+
+export function marketplacePluginDir(targetDir = marketplaceDir()) {
+  return join(targetDir, "plugins", PLUGIN_NAME);
+}
+
+const McpConfigSchema = z.object({
+  mcpServers: z.record(z.string(), z.object({ url: z.string() })),
+});
+
+// What the last `buildMarketplace` put in the folder, so `agent refresh` can
+// write the same again; null when there is no folder. `apiUrl` is null without
+// the MCP server.
+export function readMarketplacePlugin(targetDir = marketplaceDir()) {
+  const pluginDir = marketplacePluginDir(targetDir);
+  const manifestPath = join(pluginDir, ".claude-plugin", "plugin.json");
+  if (!existsSync(manifestPath)) return null;
+  const { version } = z
+    .object({ version: z.string().optional() })
+    .catch({})
+    .parse(JSON.parse(readFileSync(manifestPath, "utf8")));
+  const mcpPath = join(pluginDir, ".mcp.json");
+  const mcpUrl = existsSync(mcpPath)
+    ? McpConfigSchema.safeParse(JSON.parse(readFileSync(mcpPath, "utf8"))).data
+        ?.mcpServers[MCP_SERVER_NAME]?.url
+    : undefined;
+  return {
+    version: version ?? null,
+    skills: existsSync(join(pluginDir, "skills")),
+    panel: existsSync(join(pluginDir, "hooks", "hooks.json")),
+    apiUrl: mcpUrl ? mcpUrl.replace(/\/api\/mcp\/?$/, "") : null,
+  };
 }
 
 function writeJson(path: string, value: unknown) {
@@ -149,6 +232,7 @@ export function installClaudePlugin(input: {
   apiUrl: string;
   skills?: boolean;
   mcp?: boolean;
+  panel?: boolean;
   run?: ClaudeRunner;
   sourceDir?: string;
   targetDir?: string;
@@ -162,6 +246,7 @@ export function installClaudePlugin(input: {
     apiUrl: input.apiUrl,
     skills: input.skills,
     mcp: input.mcp,
+    panel: input.panel,
   });
 
   for (const args of [
@@ -205,10 +290,14 @@ const PluginListSchema = z.array(
     id: z.string(),
     version: z.string().optional(),
     enabled: z.boolean().optional(),
+    installPath: z.string().optional(),
+    readFromFolder: z.string().optional(),
   }),
 );
 
 // Null when `claude plugin list` can't be read, as when Claude Code is missing.
+// `panel` says whether the copy Claude Code loads carries the hooks module: the
+// folder it reads in place when it names one, else its cache.
 export function readClaudePlugin(run: ClaudeRunner = runClaude) {
   const result = run(["plugin", "list", "--json"]);
   if (!result.ok) return null;
@@ -223,9 +312,13 @@ export function readClaudePlugin(run: ClaudeRunner = runClaude) {
   );
   if (!parsed.success) return null;
   const plugin = parsed.data.find((entry) => entry.id === CLAUDE_PLUGIN_ID);
+  const loadedFrom = plugin?.readFromFolder ?? plugin?.installPath;
   return {
     installed: plugin !== undefined,
     enabled: plugin?.enabled ?? false,
     version: plugin?.version ?? null,
+    panel:
+      loadedFrom !== undefined &&
+      existsSync(join(loadedFrom, "hooks", "hooks.json")),
   };
 }

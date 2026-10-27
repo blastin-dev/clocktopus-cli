@@ -48,12 +48,36 @@ export function renderSkill(text: string, name: string) {
   return text.replace(/^name:.*$/m, `name: ${name}`);
 }
 
-// Rewrites each skill folder whole, so a file dropped from the package goes too.
+// The `clocktopus-` folders in `targetDir`, ours whether or not this CLI still
+// ships them.
+function installedSkillFolders(targetDir: string) {
+  if (!existsSync(targetDir)) return [];
+  return readdirSync(targetDir, { withFileTypes: true })
+    .filter(
+      (entry) => entry.isDirectory() && entry.name.startsWith(SKILL_PREFIX),
+    )
+    .map((entry) => entry.name);
+}
+
+// Whether `agent setup` installed the skills here, so `agent refresh` keeps
+// them current.
+export function hasAgentSkills(input: { targetDir?: string } = {}) {
+  return installedSkillFolders(input.targetDir ?? agentSkillsDir()).length > 0;
+}
+
+// Rewrites each skill folder whole, so a file dropped from the package goes
+// too, and removes the `clocktopus-` skills the package no longer ships.
 export function installAgentSkills(
   input: { sourceDir?: string; targetDir?: string } = {},
 ) {
   const targetDir = input.targetDir ?? agentSkillsDir();
-  return bundledSkills(input.sourceDir ?? skillsSourceDir()).map((skill) => {
+  const bundled = bundledSkills(input.sourceDir ?? skillsSourceDir());
+  for (const name of installedSkillFolders(targetDir)) {
+    if (!bundled.some((skill) => skill.name === name)) {
+      rmSync(join(targetDir, name), { recursive: true, force: true });
+    }
+  }
+  return bundled.map((skill) => {
     const target = join(targetDir, skill.name);
     rmSync(target, { recursive: true, force: true });
     cpSync(skill.source, target, { recursive: true });
@@ -97,15 +121,11 @@ export function readAgentSkills(
   };
 }
 
-export function removeAgentSkills(
-  input: { sourceDir?: string; targetDir?: string } = {},
-) {
+export function removeAgentSkills(input: { targetDir?: string } = {}) {
   const targetDir = input.targetDir ?? agentSkillsDir();
-  return bundledSkills(input.sourceDir ?? skillsSourceDir())
-    .map((skill) => join(targetDir, skill.name))
-    .filter((path) => existsSync(path))
-    .map((path) => {
-      rmSync(path, { recursive: true, force: true });
-      return path;
-    });
+  return installedSkillFolders(targetDir).map((name) => {
+    const path = join(targetDir, name);
+    rmSync(path, { recursive: true, force: true });
+    return path;
+  });
 }
