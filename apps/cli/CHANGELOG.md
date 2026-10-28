@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.10.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.9.0...cli-v0.10.0) (2026-10-27)
+
+
+### Features
+
+* **clk-55:** show the session's task, attribution and goal in Claude Code ([958ba18](https://github.com/blastin-dev/clocktopus/commit/958ba1810d136bc52d4e53f166c1bec71679a176))
+* **clk-60:** let agent setup install the Claude Code session panel on 2.1.310 or later ([a31230d](https://github.com/blastin-dev/clocktopus/commit/a31230d13747ca0dc09fd2ec66f29bf2bfde4ee4))
+* **clk-62:** let the CLI upgrade itself however it was installed, and show its version in the session panel ([abc97d8](https://github.com/blastin-dev/clocktopus/commit/abc97d8fdd39d46fc079b770c7a24eef881c37b5))
+* **clk-63:** review the work start-work just did before the developer reads it ([f123c34](https://github.com/blastin-dev/clocktopus/commit/f123c34d9faad176e24bfd123216afd9c3fd23ff))
+* **clk-63:** review the work start-work just did, fixing the sure findings and leaving the rest on the pull request ([b5fcdb5](https://github.com/blastin-dev/clocktopus/commit/b5fcdb5b7d03290fa887a84a25a6d900a1603315))
+
+
+### Bug Fixes
+
+* **clk-57:** resolve SSH host alias remotes so their sessions reach a project ([#513](https://github.com/blastin-dev/clocktopus/issues/513)) ([2ace678](https://github.com/blastin-dev/clocktopus/commit/2ace67818c07e3f4ba1076b3352e4a3488719ce9))
+* **clk-62:** refresh only after a newer version, from an install that lasts ([59b228e](https://github.com/blastin-dev/clocktopus/commit/59b228e2da3e163d647cfd4062ab1ad2a106ca5d))
+* **clk-63:** keep review-work to its own layer of a goal's stack ([d5f5e15](https://github.com/blastin-dev/clocktopus/commit/d5f5e1546b722f2a0ac9f27743ef822d29bb39f5))
+
 ## [0.9.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.8.1...cli-v0.9.0) (2026-10-25)
 
 
