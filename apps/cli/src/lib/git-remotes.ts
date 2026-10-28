@@ -8,7 +8,10 @@ const MAX_REMOTES = 20;
 
 // Deduplicated, `origin` first: the hook sends the first entry as `repository_url`.
 // Each URL loses its credentials here, so nothing that reads remotes sends one.
-export function parseGitRemotes(output: string | undefined): string[] {
+export function parseGitRemotes(
+  output: string | undefined,
+  resolve: (remote: string) => string = (remote) => remote,
+): string[] {
   if (!output?.trim()) return [];
 
   const byName = new Map<string, string>();
@@ -22,7 +25,7 @@ export function parseGitRemotes(output: string | undefined): string[] {
     if (!name || !url) continue;
 
     const key = `${name}:${direction}`;
-    if (!byName.has(key)) byName.set(key, stripRemoteCredentials(url));
+    if (!byName.has(key)) byName.set(key, resolve(stripRemoteCredentials(url)));
   }
 
   const entries = [...byName.entries()];

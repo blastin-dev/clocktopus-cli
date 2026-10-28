@@ -6,7 +6,7 @@ import {
 } from "@repo/cli-contract/cli-version";
 
 import { cliVersion } from "./claude-plugin.js";
-import { getApiUrl, getToken } from "./config.js";
+import { getApiUrl, getToken, rememberLatestVersion } from "./config.js";
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PUT" | "DELETE";
@@ -53,10 +53,10 @@ export async function request<T>(
     body: body ? JSON.stringify(body) : undefined,
   });
 
+  const latest = response.headers.get(CLI_LATEST_HEADER);
+  rememberLatestVersion(latest);
   // A 426's own message already names the upgrade command.
-  if (response.status !== 426) {
-    noteNewerCli(response.headers.get(CLI_LATEST_HEADER));
-  }
+  if (response.status !== 426) noteNewerCli(latest);
 
   if (!response.ok) {
     const errorText = await response.text();

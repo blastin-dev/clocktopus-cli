@@ -40,6 +40,8 @@ OpenCode.
 Get the remote with `git remote get-url origin`, then call
 `get_repository_context` and `next_task`, each with it as `repositoryUrl`;
 give `get_repository_context` the current branch as `branch` too.
+When the Clocktopus line at session start gives a resolved URL for an SSH
+host alias, use that instead.
 When the user named a goal by its number (`G-3`, shown on the goal's card in
 Clocktopus), pass it to `next_task` as `goalId`.
 
@@ -169,6 +171,9 @@ open the pull request. For a Clocktopus task (`native`), then update its
 summary with `update_task` so it says what the pull request delivers. Tasks
 from a tracker are edited in the tracker.
 
+Then review the work with the review-work skill: it fixes what it is sure of
+and leaves the rest as a comment on the pull request.
+
 When the repository's instructions forbid an agent committing or pushing,
 stop before that step and say so.
 
@@ -179,7 +184,8 @@ Stop and ask the user when:
 - the next step goes beyond a pull request: merging, deploying, applying a
   migration, or closing a task in its tracker.
 
-Finish with the pull request's link and a line on what it delivers.
+Finish with the pull request's link, a line on what it delivers, and what the
+review fixed and left on it.
 
 ## Something else turns up
 

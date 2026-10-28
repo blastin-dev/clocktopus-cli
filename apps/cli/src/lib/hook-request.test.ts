@@ -54,7 +54,7 @@ describe("postHookRequest", () => {
     });
 
     expect(fetch).not.toHaveBeenCalled();
-    expect(result).toEqual({ status: null, error: null });
+    expect(result).toEqual({ status: null, error: null, latest: null });
     expect(stderr).toHaveBeenCalledWith(
       'POST https://otel.example.com/v1/agent-session\n{"session_id":"s-1","cwd":"~/acme"}\n',
     );
@@ -71,7 +71,7 @@ describe("postHookRequest", () => {
           body: {},
           dryRun: { file: join(dir, "missing", "out.txt") },
         }),
-      ).resolves.toEqual({ status: null, error: null });
+      ).resolves.toEqual({ status: null, error: null, latest: null });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -89,7 +89,7 @@ describe("postHookRequest", () => {
       dryRun: null,
     });
 
-    expect(result).toEqual({ status: 202, error: null });
+    expect(result).toEqual({ status: 202, error: null, latest: null });
     expect(fetch).toHaveBeenCalledWith(
       "https://otel.example.com/v1/traces",
       expect.objectContaining({
@@ -99,5 +99,28 @@ describe("postHookRequest", () => {
         }),
       }),
     );
+  });
+
+  it("reads the newest CLI the receiver names", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("{}", {
+            status: 202,
+            headers: { "X-Clocktopus-Cli-Latest": "0.10.0" },
+          }),
+      ),
+    );
+
+    const result = await postHookRequest({
+      endpoint: "https://otel.example.com",
+      path: "/v1/agent-session",
+      token: "t",
+      body: {},
+      dryRun: null,
+    });
+
+    expect(result.latest).toBe("0.10.0");
   });
 });

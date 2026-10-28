@@ -223,6 +223,36 @@ describe("readCheckout", () => {
   });
 });
 
+describe("readCheckout through an SSH host alias", () => {
+  it("names the repository by the host the alias points to", () => {
+    const checkout = readCheckout({
+      run: (command, args) => {
+        if (command === "git" && args.join(" ") === "remote get-url origin") {
+          return {
+            ok: true,
+            stdout: "git@github-work:acme-co/acme-portal.git\n",
+            stderr: "",
+          };
+        }
+        if (command === "ssh" && args.join(" ") === "-G -- github-work") {
+          return {
+            ok: true,
+            stdout: "user git\nhostname github.com\nport 22\n",
+            stderr: "",
+          };
+        }
+        return { ok: false, stdout: "", stderr: "" };
+      },
+    });
+
+    expect(checkout.remote).toBe("git@github.com:acme-co/acme-portal.git");
+    expect(checkout.repository).toMatchObject({
+      provider: "github",
+      ownerRepo: "acme-co/acme-portal",
+    });
+  });
+});
+
 describe("parseWorkingHours", () => {
   it("reads whole hours, decimals and clock times", () => {
     expect(parseWorkingHours("9-17")).toEqual([9, 17]);
@@ -648,7 +678,7 @@ describe("agents step", () => {
 
     expect(deps.runAgentSetup).toHaveBeenCalledWith({
       agent: ["claude"],
-      component: ["mcp", "skills"],
+      component: ["mcp", "skills", "panel"],
       showRepoStatus: false,
     });
   });

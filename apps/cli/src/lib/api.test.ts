@@ -11,9 +11,14 @@ const installed = vi.hoisted(() => ({ version: "0.7.1" }));
 
 vi.mock("./claude-plugin.js", () => ({ cliVersion: () => installed.version }));
 
+const { rememberLatestVersion } = vi.hoisted(() => ({
+  rememberLatestVersion: vi.fn(),
+}));
+
 vi.mock("./config.js", () => ({
   getApiUrl: () => "https://app.example.test",
   getToken: () => "device-token",
+  rememberLatestVersion,
 }));
 
 const fetchMock = vi.fn<typeof fetch>();
@@ -97,8 +102,16 @@ describe("newer CLI note", () => {
 
     expect(error).toHaveBeenCalledTimes(1);
     expect(error).toHaveBeenCalledWith(
-      "A newer Clocktopus CLI is available (0.7.1 → 0.8.0). Run: npm install -g @blastin-dev/clocktopus-cli@latest",
+      "A newer Clocktopus CLI is available (0.7.1 → 0.8.0). Run: clocktopus upgrade",
     );
+  });
+
+  it("remembers the latest version the server names, for agent context", async () => {
+    respond(200, { ok: true }, "0.8.0");
+
+    await get("/api/onboarding");
+
+    expect(rememberLatestVersion).toHaveBeenCalledWith("0.8.0");
   });
 
   it("prints it on a failed request too", async () => {

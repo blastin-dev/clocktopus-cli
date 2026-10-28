@@ -16,6 +16,8 @@ import { get } from "../../lib/api.js";
 import {
   CLAUDE_PLUGIN_ID,
   cliVersion,
+  PANEL_MIN_CLAUDE_VERSION,
+  panelUnsupportedReason,
   readClaudePlugin,
 } from "../../lib/claude-plugin.js";
 import {
@@ -241,7 +243,9 @@ async function agentChecks(
   if (entry.agent.id === "claude") {
     checks.push(checkShadowedExports());
     checks.push(checkContentFlags());
-    checks.push(checkClaudePlugin());
+    const plugin = readClaudePlugin();
+    checks.push(checkClaudePlugin(plugin));
+    if (plugin?.installed) checks.push(checkClaudePanel(plugin, entry.version));
   }
 
   if (state.contextCommand !== undefined) {
@@ -291,8 +295,7 @@ function checkHookRuns(command: string): Check {
 
 // The plugin carries skills and the MCP server; cost tracking does not depend
 // on it.
-function checkClaudePlugin(): Check {
-  const plugin = readClaudePlugin();
+function checkClaudePlugin(plugin: ReturnType<typeof readClaudePlugin>): Check {
   const fix = "Re-run 'clocktopus agent setup --agent claude'";
   if (!plugin) {
     return {
@@ -322,6 +325,34 @@ function checkClaudePlugin(): Check {
         detail: `${CLAUDE_PLUGIN_ID} ${plugin.version ?? "?"}, CLI ${current}`,
         fix,
       };
+}
+
+// `version` is what `claude --version` printed, null when it did not run.
+export function checkClaudePanel(
+  plugin: Pick<NonNullable<ReturnType<typeof readClaudePlugin>>, "panel">,
+  version: string | null,
+): Check {
+  const unsupported = panelUnsupportedReason(version);
+  if (!unsupported && plugin.panel) {
+    return {
+      label: "Panel",
+      ok: true,
+      detail: "installed — /clocktopus-panel in Claude Code opens it",
+    };
+  }
+  const update = `Update Claude Code to ${PANEL_MIN_CLAUDE_VERSION} or later`;
+  return {
+    label: "Panel",
+    ok: "warn",
+    detail: plugin.panel
+      ? `installed, but ${unsupported}`
+      : `not installed${unsupported ? ` — ${unsupported}` : ""}`,
+    fix: !unsupported
+      ? "clocktopus agent setup --agent claude"
+      : plugin.panel
+        ? `${update}, or leave the panel out with 'clocktopus agent setup --agent claude --component mcp,skills'`
+        : `${update}, then re-run 'clocktopus agent setup --agent claude'`,
+  };
 }
 
 // Signing in happens inside the agent, so only the entry itself is checked.

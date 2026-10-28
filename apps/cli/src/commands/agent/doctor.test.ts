@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { checkContentFlags } from "./doctor";
+import { checkClaudePanel, checkContentFlags } from "./doctor";
 
 describe("checkContentFlags", () => {
   it("passes when every content flag is off", () => {
@@ -56,5 +56,33 @@ describe("checkContentFlags", () => {
     expect(check.detail).toContain(
       "couldn't read /etc/claude-code/managed-settings.d/10-telemetry.json",
     );
+  });
+});
+
+describe("checkClaudePanel", () => {
+  it("passes when the panel is installed on a Claude Code that supports it", () => {
+    expect(checkClaudePanel({ panel: true }, "2.1.310").ok).toBe(true);
+  });
+
+  it("warns that a panel left out can be added by re-running setup", () => {
+    expect(checkClaudePanel({ panel: false }, "2.1.310")).toMatchObject({
+      ok: "warn",
+      detail: "not installed",
+      fix: "clocktopus agent setup --agent claude",
+    });
+  });
+
+  it("names an older Claude Code as why the panel is missing", () => {
+    expect(checkClaudePanel({ panel: false }, "2.1.200")).toMatchObject({
+      ok: "warn",
+      detail: "not installed — Claude Code 2.1.200 is older than 2.1.310",
+    });
+  });
+
+  it("warns when an installed panel runs on an older Claude Code", () => {
+    expect(checkClaudePanel({ panel: true }, "2.0.1")).toMatchObject({
+      ok: "warn",
+      detail: "installed, but Claude Code 2.0.1 is older than 2.1.310",
+    });
   });
 });

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.0](https://github.com/blastin-dev/clocktopus/compare/cli-contract-v0.9.0...cli-contract-v0.10.0) (2026-10-27)
+
+
+### Features
+
+* **clk-62:** let the CLI upgrade itself however it was installed, and show its version in the session panel ([abc97d8](https://github.com/blastin-dev/clocktopus/commit/abc97d8fdd39d46fc079b770c7a24eef881c37b5))
+* **clk-63:** review the work start-work just did before the developer reads it ([f123c34](https://github.com/blastin-dev/clocktopus/commit/f123c34d9faad176e24bfd123216afd9c3fd23ff))
+
+
+### Bug Fixes
+
+* **clk-56:** stop flagging correctly booked 0h commits as warnings ([#510](https://github.com/blastin-dev/clocktopus/issues/510)) ([07526c9](https://github.com/blastin-dev/clocktopus/commit/07526c9b9810394eac3b205996401d75dd0ff521))
+
 ## [0.9.0](https://github.com/blastin-dev/clocktopus/compare/cli-contract-v0.8.1...cli-contract-v0.9.0) (2026-10-25)
 
 

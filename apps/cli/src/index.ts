@@ -8,6 +8,7 @@ import { contextCommand } from "./commands/agent/context.js";
 import { disableCommand } from "./commands/agent/disable.js";
 import { doctorCommand } from "./commands/agent/doctor.js";
 import { hookCommand } from "./commands/agent/hook.js";
+import { refreshCommand } from "./commands/agent/refresh.js";
 import { setupCommand } from "./commands/agent/setup.js";
 import { statusCommand } from "./commands/agent/status.js";
 import {
@@ -18,7 +19,9 @@ import {
 import { initCommand } from "./commands/init/index.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
+import { upgradeCommand } from "./commands/upgrade.js";
 import { whoamiCommand } from "./commands/whoami.js";
+import { refreshIfUpgraded } from "./lib/agent-refresh.js";
 import { ENVIRONMENTS, setRuntimeEnvironment } from "./lib/config.js";
 
 const require = createRequire(import.meta.url);
@@ -27,6 +30,18 @@ const parsedJson = z
   .safeParse(require("../../package.json"));
 
 const version = parsedJson.success ? parsedJson.data.version : "0.0.0";
+
+// Commands that refresh what `agent setup` installed themselves, or must not be
+// held up: the hooks print to the agent, and `agent hook` refreshes on its own.
+const REFRESHES_ITSELF = new Set([
+  "init",
+  "agent setup",
+  "agent disable",
+  "agent refresh",
+  "agent hook",
+  "agent context",
+  "upgrade",
+]);
 
 /** Lets `--agent` be repeated as well as comma-separated. */
 function collect(value: string, previous: string[] = []): string[] {
@@ -40,7 +55,7 @@ program
   .description("CLI for Clocktopus time tracking")
   .version(version)
   .option("-e, --env <environment>", "Use environment (dev, staging or prod)")
-  .hook("preAction", (thisCommand) => {
+  .hook("preAction", (thisCommand, actionCommand) => {
     const opts = thisCommand.opts();
     if (opts.env) {
       if (!(opts.env in ENVIRONMENTS)) {
@@ -50,6 +65,21 @@ program
         process.exit(1);
       }
       setRuntimeEnvironment(opts.env as Environment);
+    }
+    const name = [
+      actionCommand.parent?.parent ? actionCommand.parent.name() : null,
+      actionCommand.name(),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    if (
+      !REFRESHES_ITSELF.has(name) &&
+      refreshIfUpgraded(opts.env) &&
+      process.stderr.isTTY
+    ) {
+      console.error(
+        `Clocktopus CLI ${version}: bringing what 'agent setup' installed up to date in the background.`,
+      );
     }
   });
 
@@ -101,7 +131,7 @@ program
   )
   .option(
     "-c, --component <names>",
-    "Install only these besides telemetry and hooks (mcp, skills, or none). Repeatable or comma-separated.",
+    "Install only these besides telemetry and hooks (mcp, skills, panel, or none; panel needs mcp). Repeatable or comma-separated.",
     collect,
   )
   .option("--test-push", "Push an empty commit to verify delivery")
@@ -110,6 +140,20 @@ program
     "Delete your repository webhook when the GitHub App also delivers",
   )
   .action((options: InitOptions) => initCommand(options));
+
+program
+  .command("upgrade")
+  .description(
+    "Upgrade the CLI with whatever installed it (mise, npm, pnpm, bun or yarn), then refresh what 'agent setup' installed",
+  )
+  .option("-y, --yes", "Upgrade without asking")
+  .option(
+    "--bump",
+    "Under mise, move past a pinned version and update the config",
+  )
+  .action((options: { yes?: boolean; bump?: boolean }) =>
+    upgradeCommand(options),
+  );
 
 program
   .command("logout")
@@ -178,7 +222,7 @@ agent
   )
   .option(
     "-c, --component <names>",
-    "Install only these besides telemetry and hooks (mcp, skills, or none). Repeatable or comma-separated.",
+    "Install only these besides telemetry and hooks (mcp, skills, panel, or none; panel needs mcp). Repeatable or comma-separated.",
     collect,
   )
   .action(
@@ -212,6 +256,14 @@ agent
   .action((options: { revoke?: boolean; agent?: string[] }) =>
     disableCommand(options),
   );
+
+agent
+  .command("refresh")
+  .description(
+    "Bring what 'agent setup' installed up to this CLI's version, changing nothing else",
+  )
+  .option("--quiet", "Print nothing")
+  .action((options: { quiet?: boolean }) => refreshCommand(options));
 
 // Hidden: invoked by an agent, never by a person.
 agent

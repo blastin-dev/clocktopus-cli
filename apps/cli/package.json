@@ -1,6 +1,6 @@
 {
   "name": "@blastin-dev/clocktopus-cli",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -17,16 +17,20 @@
   },
   "files": [
     "dist",
-    "claude-plugin"
+    "claude-plugin",
+    "!claude-plugin/tsconfig.json",
+    "!claude-plugin/types/claude-code"
   ],
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
-    "check-types": "tsc --noEmit",
+    "check-types": "tsc --noEmit && tsc -p claude-plugin",
     "test": "vitest run",
+    "test:plugin": "claude plugin validate claude-plugin && claude plugin test claude-plugin",
     "lint": "eslint",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
-    "format:fix": "prettier --write . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore"
+    "format:fix": "prettier --write . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
+    "claude-code-types": "sh scripts/claude-code-types.sh"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",

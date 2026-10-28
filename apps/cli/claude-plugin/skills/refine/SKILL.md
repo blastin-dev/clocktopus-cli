@@ -34,7 +34,8 @@ OpenCode.
 
 Get the remote with `git remote get-url origin` and call
 `get_repository_context` with it as `repositoryUrl`, for the trackers the
-organisation has connected (`trackers`). When `status` is:
+organisation has connected (`trackers`). When the Clocktopus line at session start gives a resolved URL for an SSH
+host alias, use that instead. When `status` is:
 
 - `no_project`: the repository is linked to no Clocktopus project the user can
   write to. Say so, suggest linking it in Clocktopus, and stop.

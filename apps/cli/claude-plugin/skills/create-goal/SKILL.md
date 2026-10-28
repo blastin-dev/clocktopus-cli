@@ -20,7 +20,9 @@ OpenCode.
 ## 1. Read the repository's context
 
 Get the remote with `git remote get-url origin` and call
-`get_repository_context` with it as `repositoryUrl`. When `status` is:
+`get_repository_context` with it as `repositoryUrl`. When the Clocktopus line at session start gives a resolved URL for an SSH
+host alias, use that instead. When
+`status` is:
 
 - `no_project`: the repository is linked to no Clocktopus project the user can
   write to. Say so, suggest linking it in Clocktopus, and stop.

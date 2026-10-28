@@ -20,11 +20,59 @@ server's message, which names the upgrade command, and exits with code `1`.
 Device login, the agent hook and the telemetry agents export are never refused
 for their version.
 
-Its answers carry the latest published CLI version in `X-Clocktopus-Cli-Latest`,
-which the server reads from the npm registry, caches for an hour, and leaves out
-while it has never reached npm. When that is newer than the CLI's own, the CLI
-prints one line to stderr, once per run, with the upgrade command. It stays
-quiet when stderr is not a terminal, and the agent hook never prints it.
+Its answers, and the receiver's answers to the agent hook, carry the latest
+published CLI version in `X-Clocktopus-Cli-Latest`, which the server reads from
+the npm registry, caches for an hour, and leaves out while it has never reached
+npm. The CLI keeps the last one it saw. When that is newer than the CLI's own,
+a command prints one line to stderr, once per run, naming `clocktopus upgrade`;
+it stays quiet when stderr is not a terminal. The agent hook never prints it,
+but `agent context` tells the next session, so a machine only agents use (a VM
+reached through a remote harness) still hears of it.
+
+## Upgrading
+
+```bash
+clocktopus upgrade
+```
+
+It upgrades the CLI with whatever installed it, read from where the running CLI
+lives: `mise upgrade npm:@blastin-dev/clocktopus-cli` under mise, and the global
+install of npm, pnpm, bun or yarn otherwise. Under npx or from a source checkout
+there is nothing to upgrade in place, and it says what to do instead. It asks
+first; `--yes` skips the question, and without a terminal it upgrades only with
+`--yes`. It never uses `sudo`: when npm's global folder isn't yours, it points
+at npm's guide to moving it.
+
+A mise config that pins a version (`"npm:@blastin-dev/clocktopus-cli" = "0.9"`)
+keeps the upgrade inside it, and `upgrade` names the file that pins it;
+`clocktopus upgrade --bump` moves past the pin and rewrites that file. A
+project's own `mise.toml` pin is left alone.
+
+Then the new version runs `clocktopus agent refresh`. A CLI upgraded any other
+way runs it by itself, in the background, the first time a newer version runs
+on a machine where `agent setup` has run, whether a person or an agent's hook
+starts it. A CLI running through npx or from a checkout never does, so it can't
+point the hooks at a copy that won't last.
+
+### `clocktopus agent refresh`
+
+Brings what `agent setup` installed up to this CLI's version, and changes
+nothing else:
+
+- an agent's hooks only where its config already holds Clocktopus's hook, with
+  the token, receiver and MCP server it already has. They are rewritten only
+  when the hook command moves or the generated integration is stale, so an
+  agent setup left out, or `agent disable` removed, stays as it is
+- the Claude Code plugin only when it is installed, with the components its
+  folder already carries (skills, MCP server, panel), and left disabled if you
+  disabled it
+- the skills in `~/.agents/skills` only where setup put any: every skill this
+  version ships is written, new ones included, and a `clocktopus-` skill it no
+  longer ships is removed
+
+It prompts for nothing and mints no token. Hooks run the new version at once;
+sessions started after it load the new plugin and skills, and running ones keep
+theirs.
 
 ## Getting Started
 
@@ -158,7 +206,8 @@ with the ones found on PATH already ticked, then which extras to install:
 │
 ◆  What else should setup install?
 │  ◼ MCP server (lets the agent read and update Clocktopus tasks and goals)
-│  ◼ Skills (create-task, start-work, refine and create-goal)
+│  ◼ Skills (create-task, start-work, review-work, refine and create-goal)
+│  ◼ Session panel (Claude Code only, with the MCP server: the session's task, attribution and goal)
 └
 ```
 
@@ -179,6 +228,11 @@ It mints **one** ingest token for the machine, writes each agent's exporter
 configuration and `SessionStart` / `SessionEnd` hooks, then confirms the
 receiver accepts the token before reporting success.
 
+The hooks call the CLI the way the agent will find it, whatever PATH the agent
+starts with: under mise, through mise's shim (`~/.local/share/mise/shims/clocktopus`),
+which outlives each version's folder; elsewhere as `clocktopus` when that is
+this CLI on PATH, and by its absolute path when it isn't.
+
 For Claude Code it also writes Claude Code's content flags off
 (`OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_ASSISTANT_RESPONSES`,
 `OTEL_LOG_TOOL_DETAILS`, `OTEL_LOG_TOOL_CONTENT` and `OTEL_LOG_RAW_API_BODIES`,
@@ -188,16 +242,35 @@ turn them on; `agent doctor` and `agent status` warn when any is on in your
 environment or `~/.claude/settings.json`.
 
 For Claude Code it also installs the **Clocktopus plugin**, which carries the
-skills and the Clocktopus MCP server. It is copied from this package into
+skills, the Clocktopus MCP server and the session panel. It is copied from this
+package into
 `~/.clocktopus/claude-marketplace` and installed with `claude plugin install
-clocktopus@clocktopus`. Claude Code loads it in place, so re-running `agent
-setup` after upgrading the CLI updates it. Sign in to its MCP server once with
+clocktopus@clocktopus`. Claude Code loads it in place, and `agent refresh`
+updates it after an upgrade (see Upgrading). Sign in to its MCP server once with
 `/mcp` in Claude Code. Cost tracking does not depend on the plugin: disabling or
 removing it leaves the telemetry and hooks reporting.
 
+The **session panel** is Claude Code only. It shows the task the session counts
+toward, its stage and time, whether the session is attributed and to which
+task, its spend, and the goal's open tasks: a line in the footer, and a pane
+that `/clocktopus-panel` opens and closes (`/clocktopus-panel band` adds a band
+above the prompt). In Claude Code's fullscreen layout the pane docks beside the
+conversation and opens by itself; elsewhere it opens inline, only when asked.
+The pane also shows the CLI's version: the one available when it is behind,
+with `clocktopus upgrade`, and the plugin version the session loaded when the
+CLI was upgraded under it. When the server no longer serves the CLI, the footer
+says `CLI upgrade required`.
+It reads everything from the plugin's MCP server, so it is offered only with
+`mcp`. It is built on Claude Code's function hooks, so setup installs it only on
+Claude Code **2.1.310** or later; on an older Claude Code, or when
+`claude --version` can't be read, setup leaves it out and says why. Leave it
+out yourself by unticking it, or with `--component mcp,skills`.
+`claude-plugin/README.md` describes it in full.
+
 For Codex CLI, OpenCode and Cursor it copies the same skills into
 `~/.agents/skills`, which all three load, as `clocktopus-create-task`,
-`clocktopus-start-work`, `clocktopus-refine` and `clocktopus-create-goal`
+`clocktopus-start-work`, `clocktopus-review-work`, `clocktopus-refine` and
+`clocktopus-create-goal`
 (renamed so they cannot collide with skills of your own), and adds the MCP server to each
 agent's own config: `[mcp_servers.clocktopus]` in `~/.codex/config.toml`,
 `mcp.servers.clocktopus` in OpenCode 2's `opencode.json` (`mcp.clocktopus` in
@@ -205,10 +278,10 @@ OpenCode 1's), and `mcpServers.clocktopus` in
 `~/.cursor/mcp.json`. Sign in to it once with `codex mcp login clocktopus`,
 `opencode mcp auth clocktopus`, or from Cursor Settings → MCP.
 
-The four skills keep you in flow: note an idea with `create-task` and take it
+The five skills keep you in flow: note an idea with `create-task` and take it
 to a pull request with `start-work`, or set a goal with `create-goal` and have
 `start-work` work it into stacked pull requests to review one at a time.
-`refine` is the extra pass in between when you aren't sure a task covers
+`review-work` checks each pull request before you read it. `refine` is the extra pass in between when you aren't sure a task covers
 everything. They create tasks in
 Clocktopus with `create_task`, unless the repository's agent instructions
 (`CLAUDE.md`, `AGENTS.md`, a contributing guide) say to create them in another
@@ -243,6 +316,13 @@ a background subagent that carries it to an open pull request stacked on the
 one before (with `gh stack` on GitHub), while the session stays free to talk
 to you.
 
+The `review-work` skill, which `start-work` runs once the pull request is
+open, has a subagent review the branch's diff against its task in the
+background, through the agent's own code-review skill when it has one. The
+session then fixes only the findings it is highly confident in, re-runs the
+checks and pushes, and leaves everything else as one comment on the pull
+request for you to decide. It never approves, blocks or merges.
+
 The `refine` skill (`/clocktopus:refine BLA-12` or `/clocktopus:refine G-3` in
 Claude Code) is the extra pass for when you aren't sure a task covers
 everything: it gets tasks ready for an agent to take to a pull request without
@@ -259,12 +339,12 @@ drafts a goal from what you describe and a light breakdown into the tasks its
 outcome needs, in order, reusing open tasks that already cover part of it, and
 creates them all once you confirm.
 
-| Option            | Description                                                                                                     |
-| ----------------- | --------------------------------------------------------------------------------------------------------------- |
-| `--name <label>`  | Label for this machine's token. Defaults to the hostname — keep it recognisable, since revocation is per token. |
-| `--force`         | Mint a replacement token instead of reusing the one already installed.                                          |
-| `-a, --agent`     | Configure only these agents. Repeatable, or comma-separated: `--agent claude,codex`.                            |
-| `-c, --component` | Install only these besides telemetry and hooks: `mcp`, `skills`, or `none`. Repeatable, or comma-separated.     |
+| Option            | Description                                                                                                                        |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `--name <label>`  | Label for this machine's token. Defaults to the hostname — keep it recognisable, since revocation is per token.                    |
+| `--force`         | Mint a replacement token instead of reusing the one already installed.                                                             |
+| `-a, --agent`     | Configure only these agents. Repeatable, or comma-separated: `--agent claude,codex`.                                               |
+| `-c, --component` | Install only these besides telemetry and hooks: `mcp`, `skills`, `panel` (needs `mcp`), or `none`. Repeatable, or comma-separated. |
 
 Re-running without `--force` is safe and idempotent: it repairs the hooks and
 refreshes the endpoint while keeping the existing token. Installing a second
@@ -391,6 +471,9 @@ cannot show, because those sessions simply never arrive.
 That second failure is why there is no single "connected" line — it is the
 one that silently understates what work cost.
 
+For Claude Code it also names the installed plugin's version and whether it
+carries the session panel.
+
 ### See exactly what the hook sends
 
 Set `CLOCKTOPUS_HOOK_DRY_RUN` and `clocktopus agent hook` prints every request
@@ -430,7 +513,9 @@ broken: the config file parses, the exporter is configured, every signal the
 receiver reads is being sent, both hooks are installed, the hook command
 actually executes, Codex has approved its hooks, the receiver accepts the
 token, no other file is shadowing the configuration, Claude Code's content
-flags are off, and whether that agent needs restarting.
+flags are off, the Clocktopus plugin is installed and current and carries the
+session panel on a Claude Code new enough for it, and whether that agent needs
+restarting.
 
 The signals check is there for configurations written before a signal
 existed. Those still hold a valid token and endpoint, so everything else
@@ -499,18 +584,18 @@ git state and prints to the session.
 
 The session report, from every agent:
 
-| Field                               | Value                                                                                                                                         |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provider`                          | `claude_code`, `codex_cli`, `opencode` or `cursor`                                                                                            |
-| `session_id`, `hook_event_name`     | The agent's session id; `SessionStart` or `SessionEnd`                                                                                        |
-| `cwd`                               | The session's directory, as `~/…` when it is under your home directory ([`src/lib/home-relative-path.ts`](src/lib/home-relative-path.ts))     |
-| `source`, `reason`                  | The start source and end reason the agent passes its hook, when it passes one                                                                 |
-| `repository_url`, `repository_urls` | Every git remote URL of the checkout, `origin` first, as `git remote -v` prints it less any credential in it (below)                          |
-| `git_branch`                        | The checked-out branch                                                                                                                        |
-| `git_head_before`, `git_head_after` | The HEAD commit at the session's start and end                                                                                                |
-| `commit_shas`                       | Up to 200 commit SHAs made in the checkout during the session, from its reflog ([`src/lib/declared-commits.ts`](src/lib/declared-commits.ts)) |
-| `duration_ms`                       | Cursor only: the session length Cursor reports at its end                                                                                     |
-| `ended_at`                          | Only when closing a session that never sent `SessionEnd`: the time it was last active                                                         |
+| Field                               | Value                                                                                                                                                     |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `provider`                          | `claude_code`, `codex_cli`, `opencode` or `cursor`                                                                                                        |
+| `session_id`, `hook_event_name`     | The agent's session id; `SessionStart` or `SessionEnd`                                                                                                    |
+| `cwd`                               | The session's directory, as `~/…` when it is under your home directory ([`src/lib/home-relative-path.ts`](src/lib/home-relative-path.ts))                 |
+| `source`, `reason`                  | The start source and end reason the agent passes its hook, when it passes one                                                                             |
+| `repository_url`, `repository_urls` | Every git remote URL of the checkout, `origin` first, as `git remote -v` prints it less any credential in it and with any SSH host alias resolved (below) |
+| `git_branch`                        | The checked-out branch                                                                                                                                    |
+| `git_head_before`, `git_head_after` | The HEAD commit at the session's start and end                                                                                                            |
+| `commit_shas`                       | Up to 200 commit SHAs made in the checkout during the session, from its reflog ([`src/lib/declared-commits.ts`](src/lib/declared-commits.ts))             |
+| `duration_ms`                       | Cursor only: the session length Cursor reports at its end                                                                                                 |
+| `ended_at`                          | Only when closing a session that never sent `SessionEnd`: the time it was last active                                                                     |
 
 No remote URL is sent with a credential in it. The CLI drops the user name,
 password or token from an `https://` remote (`https://user:<token>@host/…` is
@@ -521,6 +606,14 @@ in [`packages/cli-contract/src/remote-url.ts`](../../packages/cli-contract/src/r
 [`src/lib/git-remotes.ts`](src/lib/git-remotes.ts) and
 [`src/commands/init/checkout.ts`](src/commands/init/checkout.ts); the receiver
 applies it too before it reads or stores a remote.
+
+A remote through an SSH host alias from `~/.ssh/config`
+(`git@github-work:acme-co/portal.git`) is sent with the host the alias points
+to, the `hostname` `ssh -G github-work` prints, because only this machine can
+resolve it. The session hooks, `clocktopus init` and the SessionStart context
+line all resolve it, through
+[`src/lib/ssh-host-alias.ts`](src/lib/ssh-host-alias.ts). `url.<base>.insteadOf`
+rewrites need nothing extra: git applies them before printing a remote.
 
 The hook reads only `session_id`, `cwd` (or Cursor's `workspace_roots`),
 `hook_event_name`, `duration_ms`, `source`, `reason` and `transcript_path` from
