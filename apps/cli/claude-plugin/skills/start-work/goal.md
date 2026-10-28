@@ -82,7 +82,7 @@ enabled), the `task` tool in OpenCode. For each task, in order:
    foreground, such as OpenCode's `task`, holds the main thread until it
    reports.
 4. When it reports, check that its pull request is open, its checks pass and
-   its review comment is posted, tell the user in one line which task
+   its review is posted, tell the user in one line which task
    finished, with its pull request and what the review left on it, and
    which starts next, and go on with a new subagent. Never start a task's
    subagent while another is still running.
