@@ -1,5 +1,9 @@
 {
   "extends": "@repo/typescript-config/internal-package.json",
+  "compilerOptions": {
+    // apps/web components import these rules into the browser, so they may not use Node globals.
+    "types": []
+  },
   "include": ["*.ts", "src"],
   "exclude": ["node_modules"]
 }

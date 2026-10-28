@@ -10,7 +10,7 @@
   },
   "scripts": {
     "lint": "eslint",
-    "check-types": "tsc --noEmit",
+    "check-types": "tsc7 --noEmit",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
     "format:fix": "prettier --write . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
     "test": "vitest run"

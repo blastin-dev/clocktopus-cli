@@ -24,7 +24,7 @@
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
-    "check-types": "tsc --noEmit && tsc -p claude-plugin",
+    "check-types": "tsc7 --noEmit && tsc7 -p claude-plugin",
     "test": "vitest run",
     "test:plugin": "claude plugin validate claude-plugin && claude plugin test claude-plugin",
     "lint": "eslint",

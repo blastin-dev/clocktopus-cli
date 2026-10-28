@@ -3,6 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "license": "MIT",
+  "bin": {
+    "tsc7": "./bin/tsc7.mjs"
+  },
+  "dependencies": {
+    "typescript-7": "catalog:"
+  },
   "publishConfig": {
     "access": "public"
   }
