@@ -73,7 +73,7 @@ when the words are too vague to say what needs doing at all.
 Create it where the `create_task` description says: with `create_task`,
 unless the repository's agent instructions name another tracker. Call
 `create_task` with `repositoryUrl`, `title`, the description as `summary` (up
-to 2000 characters) and `kind`, and leave out `agentSessionId`: this session
+to 5000 characters) and `kind`, and leave out `agentSessionId`: this session
 isn't working on the task, and tying it would move the session's spend there.
 In a tracker, give the kind as its matching label or issue type.
 

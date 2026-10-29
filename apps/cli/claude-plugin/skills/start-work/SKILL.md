@@ -160,7 +160,7 @@ the work lands. A refined task (`refined`) usually needs no questions.
 When the task leaves decisions open that the code doesn't settle, ask them
 all in one round, each with its options and the one you recommend. Write the
 answers into the task, in its tracker or as the `summary` of a Clocktopus
-task through `update_task` (up to 2000 characters), and mark it refined with
+task through `update_task` (up to 5000 characters), and mark it refined with
 `update_task` and `refined: true`, as the refine skill does.
 
 ## 6. Carry it to a pull request

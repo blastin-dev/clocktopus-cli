@@ -19,7 +19,7 @@ asking. It carries:
 - what is out of scope.
 
 Clocktopus marks it `refined`. A Clocktopus task holds its description in
-`summary`, up to 2000 characters; a tracker task's description lives in the
+`summary`, up to 5000 characters; a tracker task's description lives in the
 tracker.
 
 Everything goes through the Clocktopus MCP tools, and the tracker's own for a
