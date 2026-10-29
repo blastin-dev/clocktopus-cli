@@ -167,8 +167,12 @@ task through `update_task` (up to 5000 characters), and mark it refined with
 
 Do the work following the repository's instructions, run its checks (types,
 tests, lint, whatever it names), commit with the key in the scope, push, and
-open the pull request. For a Clocktopus task (`native`), then update its
-summary with `update_task` so it says what the pull request delivers. Tasks
+open the pull request. A branch started from another open pull request's
+branch (a goal's task on the top of its stack, or work that needs that pull
+request's unmerged changes) opens its pull request against that branch, not
+the branch the repository's pull requests target, and joins its stack as [`goal.md`](goal.md) step 3
+describes. For a Clocktopus task (`native`), then update its summary with
+`update_task` so it says what the pull request delivers. Tasks
 from a tracker are edited in the tracker.
 
 Then review the work with the review-work skill: it fixes what it is sure of

@@ -40,20 +40,27 @@ Create one git worktree for the run, so the user's checkout stays free, and
 create every task's branch in it, named as step 4 of [`SKILL.md`](SKILL.md)
 describes.
 
-- The first task's branch starts from the up-to-date default branch, or from
-  the top of the user's own open stack for this goal (their open pull request
-  for an earlier task of it).
+- The first task's branch starts from the up-to-date trunk (the branch the
+  repository's pull requests target), or from the top of the user's own open
+  stack for this goal (their open pull request for an earlier task of it).
 - Each next task's branch starts from the previous task's branch, and its
   pull request targets that branch, so each pull request shows only its own
   task. Push the previous branch before creating the next one.
 
-On GitHub, manage the stack with `gh stack` (the `github/gh-stack` extension;
-install it with `gh extension install github/gh-stack` when `gh stack` is
-missing): `gh stack init --base <trunk> <first branch>` for the first task,
-where the trunk is the branch the repository's pull requests target,
-`gh stack add <branch>` for each next one, and `gh stack submit` to push the
-branches and open or update their pull requests. On other hosts, set each
-pull request's base branch by hand.
+The main thread owns the stack; a subagent only opens its own pull request,
+with `--base` set to the branch its task's branch starts from: the trunk or
+the top of the user's open stack for the first task, the previous task's
+branch for every later one. On GitHub, once a task's pull request is open, the
+main thread joins it to the stack with `gh stack link --base <trunk> <pull
+request numbers, bottom first>` (the `github/gh-stack` extension; install it
+with `gh extension install github/gh-stack` when `gh stack` is missing),
+listing every pull request in the stack so far, the user's own open ones the
+run started from included. `link` works on GitHub alone, so stale local `gh
+stack` state in the worktree can't push old heads, and it leaves pull requests
+already in the stack where they are. Always pass `--base`: without it, `link`
+puts the stack on the repository's default branch, which need not be the
+trunk. On other hosts, each pull request's base branch is what stacks it, and
+step 4's base check is the whole of linking.
 
 Clocktopus follows a stack: a stacked pull request that merges into the branch
 below marks its task `merged`, which finishes it for the goal, so a stack
@@ -70,19 +77,24 @@ enabled), the `task` tool in OpenCode. For each task, in order:
    subagent's included, counts toward that task.
 2. Start the subagent in the run's worktree. Its prompt names the task's key
    and title, its branch, the branch to stack it on, the goal's other tasks
-   in order, and the repository's instructions for commits and checks. It asks the subagent to carry the
-   task to an open pull request as start-work's run mode does (read the task,
-   check the code, do the work, run the checks, commit with the key in the
-   scope, push, open the pull request, update a Clocktopus task's summary to
+   in order, and the repository's instructions for commits and checks. It asks
+   the subagent to carry the task to an open pull request as start-work's run
+   mode does (read the task, check the code, do the work, run the checks,
+   commit with the key in the scope, push, open the pull request with
+   `--base <the branch to stack it on>`, update a Clocktopus task's summary to
    what it delivers, review it with the review-work skill), without calling
-   `link_session` itself, and to stop and report rather than guess when a
-   decision is open.
+   `link_session` or any `gh stack` command itself, and to stop and report
+   rather than guess when a decision is open.
 3. While it runs, answer the user, and wait for its notification (`wait` in
    Codex) rather than polling. A subagent the harness can only run in the
    foreground, such as OpenCode's `task`, holds the main thread until it
    reports.
 4. When it reports, check that its pull request is open, its checks pass and
-   its review is posted, tell the user in one line which task
+   its review is posted, and that `gh pr view <number> --json baseRefName`
+   names the branch it was told to stack on;
+   `gh pr edit <number> --base <branch>` fixes one that doesn't. Then link it
+   into the stack as step 3 describes. A task counts as finished only once
+   its pull request is in the stack. Tell the user in one line which task
    finished, with its pull request and what the review left on it, and
    which starts next, and go on with a new subagent. Never start a task's
    subagent while another is still running.
