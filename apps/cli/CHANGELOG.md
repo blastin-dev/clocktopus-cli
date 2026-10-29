@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.11.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.10.0...cli-v0.11.0) (2026-10-29)
+
+
+### Features
+
+* **clk-69:** leave review-work findings inline, each with a recommended fix ([ed06984](https://github.com/blastin-dev/clocktopus/commit/ed069847dd6400fbde8bbb7c800010642aa9122c))
+* **clk-69:** leave review-work findings inline, each with a recommended fix ([81bf4b0](https://github.com/blastin-dev/clocktopus/commit/81bf4b05a19028bbf6de86330d859462dfb0eec8))
+* **clk-69:** name what the work does well in review-work's review ([8d6f143](https://github.com/blastin-dev/clocktopus/commit/8d6f143e3e839c4d2aadb8764d3c6545f7d355de))
+* **clk-73:** allow task summaries up to 5000 characters over MCP ([bca34b7](https://github.com/blastin-dev/clocktopus/commit/bca34b7fff6420f89de0c64f9f43d2ef85ca8df6))
+* **clk-73:** allow task summaries up to 5000 characters over MCP ([0561086](https://github.com/blastin-dev/clocktopus/commit/05610862dafc1d94a99cc5b7531c0c3349753e81))
+
+
+### Bug Fixes
+
+* **clk-69:** give review-work's body fallback a format and keep its rules consistent ([fc7659f](https://github.com/blastin-dev/clocktopus/commit/fc7659fcde88f42e239ba0c652dd2cac34fe5f42))
+* **clk-70:** give the shared setup the 5000-character summary limit ([c42d594](https://github.com/blastin-dev/clocktopus/commit/c42d594f30d9f7646b16314357b5f24f70c386fa))
+* **clk-70:** have create-goal search for each drafted task again ([fdea2c1](https://github.com/blastin-dev/clocktopus/commit/fdea2c11f41aea7a112a4b3dfca369785de1f203))
+* **clk-70:** search before the confirmation, and compare skill subfolders too ([c92fd25](https://github.com/blastin-dev/clocktopus/commit/c92fd25aec1f9cd38b4e964100f0429fbfd55394))
+* **clk-76:** give the first stacked pull request the right base and keep the user's open stack linked ([7778eb2](https://github.com/blastin-dev/clocktopus/commit/7778eb201fafc0511e2744e51b267d6329957148))
+* **clk-76:** have start-work's main thread stack every goal pull request ([f366eb5](https://github.com/blastin-dev/clocktopus/commit/f366eb5c7cf32741a0b6850851e9fd32968108c0))
+* **clk-76:** have start-work's main thread stack every goal pull request ([26d8a20](https://github.com/blastin-dev/clocktopus/commit/26d8a20a0e3b191b664fb32dbf6a9c0aaf4ded23))
+
 ## [0.10.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.9.0...cli-v0.10.0) (2026-10-27)
 
 
