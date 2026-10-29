@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import type { AgentProviderId } from "./agents.js";
 import { pluginSourceDir } from "./claude-plugin.js";
@@ -91,24 +91,36 @@ export function installAgentSkills(
   });
 }
 
-// `outdated` is a skill whose SKILL.md differs from this CLI's copy.
+// `outdated` is a skill with a file that differs from this CLI's copy, or is
+// missing, such as a shared `setup.md` changed since it was installed.
 export function readAgentSkills(
   input: { sourceDir?: string; targetDir?: string } = {},
 ) {
   const targetDir = input.targetDir ?? agentSkillsDir();
   const skills = bundledSkills(input.sourceDir ?? skillsSourceDir()).map(
     (skill) => {
-      const installed = join(targetDir, skill.name, "SKILL.md");
-      if (!existsSync(installed)) return { ...skill, state: "missing" };
-      const expected = renderSkill(
-        readFileSync(join(skill.source, "SKILL.md"), "utf8"),
-        skill.name,
-      );
-      return {
-        ...skill,
-        state:
-          readFileSync(installed, "utf8") === expected ? "current" : "outdated",
-      };
+      const installedDir = join(targetDir, skill.name);
+      if (!existsSync(join(installedDir, "SKILL.md"))) {
+        return { ...skill, state: "missing" };
+      }
+      const current = readdirSync(skill.source, {
+        recursive: true,
+        withFileTypes: true,
+      })
+        .filter((entry) => entry.isFile())
+        .every((entry) => {
+          const file = relative(
+            skill.source,
+            join(entry.parentPath, entry.name),
+          );
+          const installed = join(installedDir, file);
+          if (!existsSync(installed)) return false;
+          const source = readFileSync(join(skill.source, file), "utf8");
+          const expected =
+            file === "SKILL.md" ? renderSkill(source, skill.name) : source;
+          return readFileSync(installed, "utf8") === expected;
+        });
+      return { ...skill, state: current ? "current" : "outdated" };
     },
   );
   const named = (state: string) =>

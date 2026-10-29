@@ -12,22 +12,12 @@ once every one is delivered. This skill drafts the goal and a light breakdown
 of its tasks, confirms them once, and creates them. Settling each task's
 questions is the refine skill's job.
 
-If the Clocktopus MCP tools aren't available, the server needs signing in.
-Ask the user to sign in, then continue: `/mcp` in Claude Code,
-`codex mcp login clocktopus` in Codex, `opencode mcp auth clocktopus` in
-OpenCode.
+Signing in, the session id, reading the repository's context and creating a
+task work as [setup.md](setup.md) describes.
 
 ## 1. Read the repository's context
 
-Get the remote with `git remote get-url origin` and call
-`get_repository_context` with it as `repositoryUrl`. When the Clocktopus line at session start gives a resolved URL for an SSH
-host alias, use that instead. When
-`status` is:
-
-- `no_project`: the repository is linked to no Clocktopus project the user can
-  write to. Say so, suggest linking it in Clocktopus, and stop.
-- `choose_organization`: several organisations link it. Ask which, then call
-  again with `orgId`, and pass it to every call below.
+Read it as setup.md describes; on `no_project`, stop.
 
 ## 2. Draft the goal and its tasks
 
@@ -46,15 +36,13 @@ Then draft the tasks the outcome needs, in the order to work them, each with:
 
 - a one-line title, the outcome rather than the fix;
 - a line on what it covers;
-- a kind: `bug`, `feature`, `improvement` or `tech`, as `create_task`
-  describes them.
+- a kind, as setup.md describes.
 
 Size each so one pull request delivers it. Look at the code only as far as
 needed to split the work sensibly. Write no specs and ask nothing about
-implementation: those questions wait for the refine skill. Look for open tasks
-that already cover part of the work with `search_tasks` (`repositoryUrl` and a
-few words of each task as `query`), and use one instead of a new task, marked
-by its key. Keys the user named go in as given.
+implementation: those questions wait for the refine skill. Search for each
+drafted task, as setup.md describes, and use an open task that covers it
+instead of a new one, marked by its key. Keys the user named go in as given.
 
 ## 3. Confirm once
 
@@ -64,12 +52,9 @@ can edit or drop anything. Create nothing until they confirm.
 ## 4. Create it
 
 1. Call `create_goal` with `repositoryUrl`, the `title` and the `outcome`.
-2. Create each new task where the `create_task` description says: with
-   `create_task`, unless the repository's agent instructions name another
-   tracker. Call `create_task` with `repositoryUrl`, the `title`, the line on
-   what as `summary`, and the `kind`; in a tracker, give the kind as its
-   matching label or issue type. Leave out `agentSessionId`: this session
-   isn't working on them.
+2. Create each new task as setup.md describes, with the line on what as
+   `summary` and without `agentSessionId`: this session isn't working on
+   them.
 3. Call `set_goal_tasks` with the new goal's `id` as `goalId` and every task,
    reused and new, in `tasks`, in the confirmed order.
 

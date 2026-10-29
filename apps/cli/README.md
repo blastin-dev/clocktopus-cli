@@ -320,8 +320,9 @@ The `review-work` skill, which `start-work` runs once the pull request is
 open, has a subagent review the branch's diff against its task in the
 background, through the agent's own code-review skill when it has one. The
 session then fixes only the findings it is highly confident in, re-runs the
-checks and pushes, and leaves everything else as one comment on the pull
-request for you to decide. It never approves, blocks or merges.
+checks and pushes, and leaves everything else as inline comments on the pull
+request, each on the line to fix with a recommended fix, for you to decide.
+It never approves, blocks or merges.
 
 The `refine` skill (`/clocktopus:refine BLA-12` or `/clocktopus:refine G-3` in
 Claude Code) is the extra pass for when you aren't sure a task covers

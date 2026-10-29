@@ -133,6 +133,24 @@ describe("readAgentSkills", () => {
       missing: [],
     });
   });
+
+  it("reports a skill outdated when a file beside its SKILL.md changed", () => {
+    installAgentSkills({ targetDir });
+    writeFileSync(join(targetDir, "clocktopus-create-task", "setup.md"), "old");
+
+    expect(readAgentSkills({ targetDir }).outdated).toEqual([
+      "clocktopus-create-task",
+    ]);
+  });
+
+  it("reports a skill outdated when a file beside its SKILL.md is missing", () => {
+    installAgentSkills({ targetDir });
+    rmSync(join(targetDir, "clocktopus-create-goal", "setup.md"));
+
+    expect(readAgentSkills({ targetDir }).outdated).toEqual([
+      "clocktopus-create-goal",
+    ]);
+  });
 });
 
 describe("skillNameFor", () => {
