@@ -25,26 +25,14 @@ tracker.
 Everything goes through the Clocktopus MCP tools, and the tracker's own for a
 tracker task. Propose first, then apply only what the user confirms.
 
-If the Clocktopus MCP tools aren't available, the server needs signing in.
-Ask the user to sign in, then continue: `/mcp` in Claude Code,
-`codex mcp login clocktopus` in Codex, `opencode mcp auth clocktopus` in
-OpenCode.
+Signing in, the session id, reading the repository's context and creating a
+task work as [setup.md](setup.md) describes.
 
 ## 1. Task or goal
 
-Get the remote with `git remote get-url origin` and call
-`get_repository_context` with it as `repositoryUrl`, for the trackers the
-organisation has connected (`trackers`). When the Clocktopus line at session start gives a resolved URL for an SSH
-host alias, use that instead. When `status` is:
-
-- `no_project`: the repository is linked to no Clocktopus project the user can
-  write to. Say so, suggest linking it in Clocktopus, and stop.
-- `choose_organization`: several organisations link it. Ask which, then call
-  again with `orgId`.
-
-Pass the project's `organizationId` as `orgId` to the tools that take no
-`repositoryUrl` (`get_ticket_flow` and the goal tools), and a goal's ref
-(`G-3`) as `goalId`. Then:
+Read the repository's context as setup.md describes, for the trackers the
+organisation has connected (`trackers`); on `no_project`, stop. Pass a goal's
+ref (`G-3`) as `goalId`. Then:
 
 - **The user named a task key** (`BLA-12`, or a bare number that only fits
   the project's keys): refine that task (step 2), then stop.
@@ -132,8 +120,7 @@ words on why:
 - **Duplicates:** pairs that describe the same work, and which one to keep.
 - **Missing:** work the goal needs that no task covers: a candidate by its
   key, or a new task as a drafted one-line title, a line on what, and a kind
-  (`bug`, `feature`, `improvement` or `tech`, as `create_task` describes
-  them).
+  (as setup.md describes).
 
 On a goal refined before, start with what is still open: how long each task
 has been in the goal (from `addedAt`) and what it has cost, and ask for each
@@ -142,10 +129,9 @@ whether to keep, release or cancel it. Nothing carries over silently.
 Ask the user to confirm, edit or drop each group. Apply only what they
 confirm, in this order:
 
-1. **Missing tasks:** create each confirmed new one where the `create_task`
-   description says: with `create_task`, unless the repository's agent
-   instructions name another tracker. Leave out `agentSessionId`: this
-   session isn't working on them. Note the keys.
+1. **Missing tasks:** create each confirmed new one as setup.md describes,
+   without `agentSessionId`: this session isn't working on them. Note the
+   keys.
 2. **Membership:** call `set_goal_tasks` once, with `tasks` in the confirmed
    order (new keys where the user put them) and `release` for released and
    duplicate tasks. An open task left out of `tasks` is released too; a merged

@@ -18,6 +18,13 @@ another by its short name (`the refine skill`) and never links to its files,
 whose folder is named differently in each install; a link to a file in the
 skill's own folder is fine.
 
+Each skill folder is installed on its own, so what every skill does the same
+way (signing in, the session id, the repository's context, creating a task)
+lives once in `../skill-shared/setup.md`, and each skill that needs it links a
+copy in its own folder as `[setup.md](setup.md)`. Edit the source, then run
+`pnpm --filter @blastin-dev/clocktopus-cli skills:sync`;
+`src/lib/skill-shared.test.ts` fails while a copy differs.
+
 Cost tracking does not live here: the telemetry settings and the SessionStart and
 SessionEnd hooks stay in `~/.claude/settings.json`, written by `agent setup`.
 

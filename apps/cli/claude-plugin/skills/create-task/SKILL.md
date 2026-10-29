@@ -12,27 +12,14 @@ confirm. Write it so an agent can later pick it up and carry it to a pull
 request. Refining it further, with the refine skill, is an extra pass for when
 the user isn't sure the task covers everything, not a step every task needs.
 
-If the Clocktopus MCP tools aren't available, the server needs signing in.
-Ask the user to sign in, then continue: `/mcp` in Claude Code,
-`codex mcp login clocktopus` in Codex, `opencode mcp auth clocktopus` in
-OpenCode.
+Signing in, the session id, reading the repository's context and creating a
+task work as [setup.md](setup.md) describes.
 
 ## 1. Read the repository's context
 
-Get the remote with `git remote get-url origin` and call
-`get_repository_context` with it as `repositoryUrl`. When the Clocktopus line at session start gives a resolved URL for an SSH
-host alias, use that instead. When
-`status` is:
-
-- `no_project`: the repository is linked to no Clocktopus project the user can
-  write to. Say so, suggest linking it in Clocktopus, and stop.
-- `choose_organization`: several organisations link it. Ask which, then call
-  again with `orgId`.
-
-Then call `search_tasks` with `repositoryUrl` and a few distinctive words
-from what the user described as `query`, trying another wording when nothing
-comes back. When an open task clearly covers it, say so with its key and
-title, and create nothing unless the user insists.
+Read it as setup.md describes; on `no_project`, stop. Then search for what the
+user described, as setup.md describes. When an open task clearly covers it,
+say so with its key and title, and create nothing unless the user insists.
 
 ## 2. Write it
 
@@ -50,8 +37,7 @@ context; leave how to build it to whoever picks it up.
     tool or part of the code it lands in when the user's words or a quick look
     make that clear;
   - **Out of scope:** what is deliberately left out, when anything is.
-- **Kind:** `bug`, `feature`, `improvement` or `tech`, as `create_task`
-  describes them.
+- **Kind:** one, as setup.md describes.
 
 ```markdown
 Exporting invoices to CSV leaves out credit notes, so the export doesn't add
@@ -70,12 +56,8 @@ up to the period's revenue.
 Don't design the implementation or ask how to build it. Ask a question only
 when the words are too vague to say what needs doing at all.
 
-Create it where the `create_task` description says: with `create_task`,
-unless the repository's agent instructions name another tracker. Call
-`create_task` with `repositoryUrl`, `title`, the description as `summary` (up
-to 5000 characters) and `kind`, and leave out `agentSessionId`: this session
-isn't working on the task, and tying it would move the session's spend there.
-In a tracker, give the kind as its matching label or issue type.
+Create it as setup.md describes, without `agentSessionId`: this session
+isn't working on the task.
 
 When the user named a goal (`G-3`), call `set_goal_tasks` with it as `goalId`,
 the project's `organizationId` as `orgId`, and the new key in `add`, which puts

@@ -30,7 +30,8 @@
     "lint": "eslint",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
     "format:fix": "prettier --write . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
-    "claude-code-types": "sh scripts/claude-code-types.sh"
+    "claude-code-types": "sh scripts/claude-code-types.sh",
+    "skills:sync": "sh scripts/sync-skill-shared.sh"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",

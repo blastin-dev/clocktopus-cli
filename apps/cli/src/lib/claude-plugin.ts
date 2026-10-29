@@ -29,7 +29,7 @@ export function marketplaceDir() {
 
 // The package root holds `claude-plugin/` beside `dist/`, whether this runs
 // from `dist/bin` or from `src/lib`.
-function packageRoot() {
+export function packageRoot() {
   let dir = dirname(fileURLToPath(import.meta.url));
   for (;;) {
     const manifest = join(dir, "package.json");

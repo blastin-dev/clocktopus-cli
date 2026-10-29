@@ -25,25 +25,16 @@ key. It never blocks a commit or a push.
 Do nothing when the session only asks a question, explores, reviews or
 explains, and changes no code.
 
-At session start, Claude Code, Codex and Cursor show a line from Clocktopus
-saying whether the current branch carries a task, with the session id and
-agent (`Session id: …, agent codex_cli.`). OpenCode shows no such line:
-there, leave `agentSessionId` and `agent` out of every call below.
-
-If the Clocktopus MCP tools aren't available, the server needs signing in.
-Ask the user to sign in, then continue: `/mcp` in Claude Code,
-`codex mcp login clocktopus` in Codex, `opencode mcp auth clocktopus` in
-OpenCode.
+Signing in, the session id, reading the repository's context and creating a
+task work as [setup.md](setup.md) describes.
 
 ## 1. Read the repository's context and its goal
 
-Get the remote with `git remote get-url origin`, then call
-`get_repository_context` and `next_task`, each with it as `repositoryUrl`;
-give `get_repository_context` the current branch as `branch` too.
-When the Clocktopus line at session start gives a resolved URL for an SSH
-host alias, use that instead.
-When the user named a goal by its number (`G-3`, shown on the goal's card in
-Clocktopus), pass it to `next_task` as `goalId`.
+Read the repository's context as setup.md describes, giving
+`get_repository_context` the current branch as `branch` too, and call
+`next_task` with the same `repositoryUrl`. When the user named a goal by its
+number (`G-3`, shown on the goal's card in Clocktopus), pass it to
+`next_task` as `goalId`.
 
 `get_repository_context` returns the Clocktopus `project` the repository is
 linked to, its `taskKeyPrefix` (`CLK`), the `trackers` the organisation has
@@ -51,13 +42,8 @@ connected, how many tasks are open, the ones in progress or in review
 (`inFlight`), and `branchTask`: the task the branch names, with its `summary`,
 stage, pull requests, `kind`, `refined` mark, and `native` for a task created
 in Clocktopus. `search_tasks` finds the others and `get_task` reads one by
-key. When `status` is:
-
-- `no_project`: the repository is linked to no Clocktopus project the user can
-  write to. Say so once, suggest linking it in Clocktopus, and carry on with
-  the work: nothing else in this skill applies.
-- `choose_organization`: several organisations link it. Ask which, then call
-  both tools again with `orgId`.
+key. On `no_project`, carry on with the work: nothing else in this skill
+applies. On `choose_organization`, call `next_task` again with `orgId` too.
 
 `next_task` returns the project's active goal, its `next` list (every open
 task in the goal's order, each with `claimed`: already started by a session,
@@ -83,8 +69,7 @@ Take the first that applies:
 1. The user named a key.
 2. The branch carries one.
 3. The user described work that an open task clearly matches: one in the
-   goal's `next`, or one `search_tasks` finds with a few distinctive words of
-   it as `query`.
+   goal's `next`, or one a search finds, as setup.md describes.
 4. The user described new work: create its task straight away, without a
    round of confirmation (below).
 5. The user didn't say what to work on: offer the goal's `ticket`. When
@@ -97,12 +82,9 @@ title. Never guess between tasks.
 
 **Creating the task.** Write it from the user's words as the create-task
 skill does: a title, a description (the problem, why it matters, what to do,
-what is out of scope) and a kind. Create it where the `create_task` description says: with
-`create_task`, unless the repository's agent instructions name another
-tracker. Call `create_task` with `repositoryUrl`, `title`, `summary`, `kind`,
-and the session id and agent from the Clocktopus line as `agentSessionId` and
-`agent`, which ties this session to it. It returns the key and a suggested
-`branchName`. In a tracker, give the kind as its matching label or issue type.
+what is out of scope) and a kind. Create it as setup.md describes, with
+`agentSessionId` and `agent`, which ties this session to it. It returns the
+key and a suggested `branchName`.
 
 Once the task is chosen, and when the project has an active goal, tell the
 user in one line where the task stands against it: its place in `next`
@@ -111,8 +93,8 @@ goal.
 
 ## 3. Tie the session to the task
 
-Call `link_session` with `repositoryUrl`, the task's `key`, and the session id
-and agent from the Clocktopus line as `agentSessionId` and `agent`. Its time
+Call `link_session` with `repositoryUrl`, the task's `key`, and the session's
+`agentSessionId` and `agent`. Its time
 and spend then count toward the task from now on, whatever branch or directory
 the session is in. Skip it for a task `create_task` just made with
 `agentSessionId`, which is already tied.
@@ -195,9 +177,7 @@ review fixed and left on it.
 
 When something worth doing turns up mid-session but isn't the current task,
 create a task for it as the create-task skill does, and stay where you are:
-no new branch, no switch. Leave out `agentSessionId`: this session isn't
-working on it, and tying it would move the session's spend there. Tell the
-user its key.
+no new branch, no switch, and no `agentSessionId`. Tell the user its key.
 
 ## Don't
 
