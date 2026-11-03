@@ -118,6 +118,17 @@ export function isTicketKey(key: string) {
   return TICKET_KEY.test(key);
 }
 
+// A key a text mentions, such as a task's description. Only the uppercase form
+// counts, and not inside a word, a path, a longer hyphenated name or an email
+// address: `utf-8`, `src/CLK-12`, `CLK-12-export` and `CLK-12@acme.test`
+// mention nothing.
+export const TASK_KEY_MENTION = /(?<![\w/-])[A-Z][A-Z0-9]*-\d+(?![\w@-])/g;
+
+export function findTaskKeyMentions(text: string | null | undefined) {
+  if (!text) return [];
+  return [...new Set(text.match(TASK_KEY_MENTION))];
+}
+
 export function extractTaskKeyFromPullRequest(pr: {
   sourceBranch: string | null | undefined;
   title: string | null | undefined;
