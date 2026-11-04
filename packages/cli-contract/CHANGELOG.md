@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.12.0](https://github.com/blastin-dev/clocktopus/compare/cli-contract-v0.11.0...cli-contract-v0.12.0) (2026-11-04)
+
+
+### Features
+
+* **clk-84:** declare the ticket prefixes a checkout uses during init ([b74058d](https://github.com/blastin-dev/clocktopus/commit/b74058d8b379f56943a3878b69fcae00fec45192))
+* **clk-87:** link the tasks a task's description mentions ([d5bbc93](https://github.com/blastin-dev/clocktopus/commit/d5bbc9330dfd969495e1a3e7c49fa65be5ef746e))
+
+
+### Bug Fixes
+
+* **clk-80:** keep a numbered task key prefix within its maximum length ([029af3e](https://github.com/blastin-dev/clocktopus/commit/029af3eaa6c2cf83f8a94d76b04340b1ed2c08a0))
+* **clk-95:** list tasks while no git provider is connected ([7f66dd9](https://github.com/blastin-dev/clocktopus/commit/7f66dd927aa39054b4d8b249bfc8d5b301b83454))
+
 ## [0.11.0](https://github.com/blastin-dev/clocktopus/compare/cli-contract-v0.10.0...cli-contract-v0.11.0) (2026-10-29)
 
 
