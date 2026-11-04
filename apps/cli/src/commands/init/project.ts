@@ -166,6 +166,7 @@ export async function runProjectStep(
   );
   if (linked) {
     state.organizationId = linked.organizationId;
+    state.projectId = linked.id;
     state.projectName = linked.name;
     deps.log(
       `✓ Project       ${status?.repository?.ownerRepo ?? "this repository"} is already in ${linked.name} (${linked.organizationName}) — nothing to create`,
@@ -237,6 +238,7 @@ export async function runProjectStep(
         deps.log("– Project       left unattached");
         return;
       }
+      state.projectId = existing.id;
       state.projectName = existing.name;
       deps.log(
         `✓ Project       attached ${status.repository.ownerRepo} to ${existing.name}`,
@@ -251,12 +253,13 @@ export async function runProjectStep(
         defaultProjectName(checkout),
       ));
     newName = name.trim() || defaultProjectName(checkout);
-    CreatedProjectSchema.parse(
+    const created = CreatedProjectSchema.parse(
       await deps.api.post(projectsPath, {
         name: newName,
         repositoryUrls: [checkout.remote],
       }),
     );
+    state.projectId = created.project.id;
     state.projectName = newName;
     deps.log(
       `✓ Project       created ${newName} with ${status.repository.ownerRepo}`,

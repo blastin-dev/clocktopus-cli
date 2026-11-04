@@ -96,7 +96,12 @@ Sets up this checkout, one confirmable step at a time:
 2. **Organisation and project** — when the `origin` remote already belongs to a
    project in one of your organisations, says which and creates nothing.
    Otherwise picks or creates the organisation, then attaches the repository
-   to an existing project you manage or a new one.
+   to an existing project you manage or a new one. Then, for an owner or
+   admin, it declares the `<X>-<n>` prefixes that at least two of the
+   checkout's commit scopes and branch names use as the project's tracker key
+   prefixes
+   (`✓ Tracker key prefixes: BLA`), so those tickets land in the project. It
+   asks only when another project already uses one: skip it, or type another.
 3. **Repository** — for GitHub, installs the Clocktopus GitHub App through the
    browser and waits until it covers the repository (press `m` to switch to a
    webhook). With `gh` installed it can create the repository webhook itself;
@@ -206,7 +211,7 @@ with the ones found on PATH already ticked, then which extras to install:
 │
 ◆  What else should setup install?
 │  ◼ MCP server (lets the agent read and update Clocktopus tasks and goals)
-│  ◼ Skills (create-task, start-work, review-work, refine and create-goal)
+│  ◼ Skills (create-task, start-work, review-work, refine, create-goal and register-ticket)
 │  ◼ Session panel (Claude Code only, with the MCP server: the session's task, attribution and goal)
 └
 ```
@@ -278,7 +283,7 @@ OpenCode 1's), and `mcpServers.clocktopus` in
 `~/.cursor/mcp.json`. Sign in to it once with `codex mcp login clocktopus`,
 `opencode mcp auth clocktopus`, or from Cursor Settings → MCP.
 
-The five skills keep you in flow: note an idea with `create-task` and take it
+The six skills keep you in flow: note an idea with `create-task` and take it
 to a pull request with `start-work`, or set a goal with `create-goal` and have
 `start-work` work it into stacked pull requests to review one at a time.
 `review-work` checks each pull request before you read it. `refine` is the extra pass in between when you aren't sure a task covers
@@ -286,7 +291,15 @@ everything. They create tasks in
 Clocktopus with `create_task`, unless the repository's agent instructions
 (`CLAUDE.md`, `AGENTS.md`, a contributing guide) say to create them in another
 tracker, and give each a kind (bug, feature, improvement or tech) from your
-words.
+words. A task created in a tracker, or a tracker ticket you name, is
+registered in Clocktopus under its own key with `register_ticket`.
+
+The `register-ticket` skill does only that registering, for any workflow, a
+repository's own skills included: see
+[calling the skills from your own](https://clocktopus.app/docs/agent-skills#calling-the-skills-from-your-own).
+It does nothing in a repository no Clocktopus project links, or for
+a key that is already a Clocktopus task or whose prefix isn't one of the
+project's tracker key prefixes, so a shared workflow can call it anywhere.
 
 The `create-task` skill (`/clocktopus:create-task "<what to do>"` in Claude
 Code) notes a task for later from your words, written so an agent can pick it

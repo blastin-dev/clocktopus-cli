@@ -160,7 +160,12 @@ function fakeDeps(routes: Record<string, () => unknown>) {
 }
 
 function freshState(): InitState {
-  return { organizationId: null, projectName: null, connectedBy: null };
+  return {
+    organizationId: null,
+    projectId: null,
+    projectName: null,
+    connectedBy: null,
+  };
 }
 
 describe("parseRemote", () => {
@@ -1263,7 +1268,13 @@ describe("runInit", () => {
       preferencesConfirmed: true,
       autoLockAfterDays: 7,
     });
-    expect(run).not.toHaveBeenCalled();
+    // Only the read of the checkout's key prefixes.
+    expect(run.mock.calls.map(([command, args]) => [command, args[0]])).toEqual(
+      [
+        ["git", "log"],
+        ["git", "for-each-ref"],
+      ],
+    );
     expect(lines.join("\n")).toContain("Not verified yet");
     expect(lines.join("\n")).not.toContain("All set");
   });

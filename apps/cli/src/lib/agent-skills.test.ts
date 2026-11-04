@@ -38,6 +38,7 @@ describe("installAgentSkills", () => {
       "clocktopus-create-goal",
       "clocktopus-create-task",
       "clocktopus-refine",
+      "clocktopus-register-ticket",
       "clocktopus-review-work",
       "clocktopus-start-work",
     ]);
@@ -114,6 +115,7 @@ describe("readAgentSkills", () => {
       "clocktopus-create-goal",
       "clocktopus-create-task",
       "clocktopus-refine",
+      "clocktopus-register-ticket",
       "clocktopus-review-work",
       "clocktopus-start-work",
     ]);
@@ -125,6 +127,7 @@ describe("readAgentSkills", () => {
     expect(skills.installed.sort()).toEqual([
       "clocktopus-create-goal",
       "clocktopus-create-task",
+      "clocktopus-register-ticket",
       "clocktopus-review-work",
       "clocktopus-start-work",
     ]);

@@ -1,7 +1,7 @@
 ---
 name: create-goal
-description: Creates a Clocktopus goal from what the user describes, with a light breakdown into the tasks its outcome needs, in order, each a one-line title, a line on what and a kind. Reuses open tasks that already cover part of it, shows the goal and its tasks together, and creates them all on one confirmation, leaving each task's questions to refine. Use when the user asks to create, add, start or set up a goal, or to break an outcome down into tasks.
-argument-hint: '"<goal>"'
+description: Creates a Clocktopus goal from what the user describes, or from a Linear or Jira ticket they name, with a light breakdown into the tasks its outcome needs, in order, each a one-line title, a line on what and a kind. Reuses open tasks that already cover part of it, shows the goal and its tasks together, and creates them all on one confirmation, leaving each task's questions to refine. From a ticket, the goal's tasks are the ticket's sub-tasks in the tracker, existing ones reused and the rest created there. Use when the user asks to create, add, start or set up a goal, or to break an outcome or a tracker ticket down into tasks.
+argument-hint: '"<goal>" or a tracker ticket key (BLA-12)'
 ---
 
 # Create a goal
@@ -18,6 +18,10 @@ task work as [setup.md](setup.md) describes.
 ## 1. Read the repository's context
 
 Read it as setup.md describes; on `no_project`, stop.
+
+When the user named a tracker ticket (`BLA-12`, a key whose prefix isn't the
+project's `taskKeyPrefix`), read [from-ticket.md](from-ticket.md) and follow it
+instead of the steps below.
 
 ## 2. Draft the goal and its tasks
 

@@ -178,3 +178,22 @@ export function findMergeCommitTaskKeyReference(
     end: titleOffset + fromTitle.end,
   };
 }
+
+// A project's task key prefix or tracker key prefix. It must keep
+// `<prefix>-<n>` readable by `extractTaskKeyFromBranch`: a letter first, then
+// letters or digits.
+export const TASK_KEY_PREFIX_MAX_LENGTH = 10;
+export const TASK_KEY_PREFIX = new RegExp(
+  `^[A-Za-z][A-Za-z0-9]{0,${TASK_KEY_PREFIX_MAX_LENGTH - 1}}$`,
+);
+
+export function normalizeTaskKeyPrefix(raw: string | null | undefined) {
+  const prefix = normalizeTaskKey(raw);
+  return prefix && TASK_KEY_PREFIX.test(prefix) ? prefix : null;
+}
+
+// The prefix of a normalised key such as `ACME-12`, or null for one that isn't
+// `<prefix>-<n>`.
+export function keyPrefix(key: string) {
+  return key.match(/^([A-Z][A-Z0-9]*)-[0-9]+$/)?.[1] ?? null;
+}

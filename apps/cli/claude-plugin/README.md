@@ -35,6 +35,9 @@ host that runs Claude Code through the SDK runs the hooks but draws none of it.
 The panel refreshes after a branch or worktree change, and a refresh on a branch
 naming a task the session was never tied to ties it there. Moving back to an
 earlier task's branch leaves the session on the newest task it was tied to.
+When the session is tied to a task its own branch doesn't name, and exactly one
+worktree has that task's branch checked out, as in a goal run, the panel shows
+that worktree's branch and folder, and where the session started.
 
 `agent setup` installs it with the MCP server, on Claude Code
 `PANEL_MIN_CLAUDE_VERSION` (`src/lib/claude-plugin.ts`, 2.1.310, the version

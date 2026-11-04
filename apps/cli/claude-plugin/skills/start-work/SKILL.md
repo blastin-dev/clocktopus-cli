@@ -38,12 +38,12 @@ number (`G-3`, shown on the goal's card in Clocktopus), pass it to
 
 `get_repository_context` returns the Clocktopus `project` the repository is
 linked to, its `taskKeyPrefix` (`CLK`), the `trackers` the organisation has
-connected, how many tasks are open, the ones in progress or in review
-(`inFlight`), and `branchTask`: the task the branch names, with its `summary`,
-stage, pull requests, `kind`, `refined` mark, and `native` for a task created
-in Clocktopus. `search_tasks` finds the others and `get_task` reads one by
-key. On `no_project`, carry on with the work: nothing else in this skill
-applies. On `choose_organization`, call `next_task` again with `orgId` too.
+connected and the `trackerKeyPrefixes` its tickets use, how many tasks are
+open, the ones in progress or in review (`inFlight`), and `branchTask`: the
+task the branch names, with its `summary`, stage, pull requests, `kind`,
+`refined` mark, and `native` for a task created in Clocktopus.
+`search_tasks` finds the others and `get_task` reads one by key. On
+`no_project`, carry on with the work: nothing else in this skill applies. On `choose_organization`, call `next_task` again with `orgId` too.
 
 `next_task` returns the project's active goal, its `next` list (every open
 task in the goal's order, each with `claimed`: already started by a session,
@@ -66,7 +66,8 @@ steps below.
 
 Take the first that applies:
 
-1. The user named a key.
+1. The user named a key. Register a tracker's key as setup.md describes when
+   `get_task` returns it as `null` or without a title.
 2. The branch carries one.
 3. The user described work that an open task clearly matches: one in the
    goal's `next`, or one a search finds, as setup.md describes.
@@ -83,8 +84,8 @@ title. Never guess between tasks.
 **Creating the task.** Write it from the user's words as the create-task
 skill does: a title, a description (the problem, why it matters, what to do,
 what is out of scope) and a kind. Create it as setup.md describes, with
-`agentSessionId` and `agent`, which ties this session to it. It returns the
-key and a suggested `branchName`.
+`agentSessionId` and `agent`, which ties this session to it. `create_task`
+returns the key and a suggested `branchName`; a tracker returns its own key.
 
 Once the task is chosen, and when the project has an active goal, tell the
 user in one line where the task stands against it: its place in `next`

@@ -530,7 +530,7 @@ async function selectComponents(
       {
         value: "skills",
         label: "Skills",
-        hint: "create-task, start-work, review-work, refine and create-goal",
+        hint: "create-task, start-work, review-work, refine, create-goal and register-ticket",
       },
       {
         value: "panel",
