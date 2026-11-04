@@ -31,7 +31,8 @@ task work as [setup.md](setup.md) describes.
 ## 1. Task or goal
 
 Read the repository's context as setup.md describes, for the trackers the
-organisation has connected (`trackers`); on `no_project`, stop. Pass a goal's
+organisation has connected (`trackers`) and the ones the project's tickets
+come from (`trackerKeyPrefixes`); on `no_project`, stop. Pass a goal's
 ref (`G-3`) as `goalId`. Then:
 
 - **The user named a task key** (`BLA-12`, or a bare number that only fits

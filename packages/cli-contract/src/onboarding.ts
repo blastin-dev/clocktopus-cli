@@ -57,6 +57,17 @@ export const CreatedProjectSchema = z.object({
     .optional(),
 });
 
+// `POST /api/organizations/{organizationId}/projects/{projectId}/tracker-key-prefixes`:
+// `declared` are the sent prefixes the project now declares, `refused` the
+// ones another project uses, with that project's name. The project's own task
+// key prefix is in neither.
+export const DeclaredTrackerKeyPrefixesSchema = z.object({
+  taskKeyPrefix: z.string(),
+  trackerKeyPrefixes: z.array(z.string()),
+  declared: z.array(z.string()),
+  refused: z.array(z.object({ prefix: z.string(), usedBy: z.string() })),
+});
+
 // `GET /api/organizations/{organizationId}/projects/{projectId}/repositories/preview`:
 // how much of the caller's unassigned time attaching the repository files
 // under the project.

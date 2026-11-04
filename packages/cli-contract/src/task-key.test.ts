@@ -4,6 +4,7 @@ import {
   extractTaskKey,
   extractTaskKeyFromPullRequest,
   findMergeCommitTaskKeyReference,
+  findTaskKeyMentions,
   findTaskKeyReference,
   isTicketKey,
   normalizeTaskKey,
@@ -349,5 +350,25 @@ describe("isTicketKey", () => {
     expect(isTicketKey("RELEASE")).toBe(false);
     expect(isTicketKey("WEB UI")).toBe(false);
     expect(isTicketKey("5")).toBe(false);
+  });
+});
+
+describe("findTaskKeyMentions", () => {
+  it("finds each uppercase key once", () => {
+    expect(
+      findTaskKeyMentions("See CLK-12 and (ENG-7), then CLK-12 again."),
+    ).toEqual(["CLK-12", "ENG-7"]);
+  });
+
+  it("ignores lowercase keys, paths, longer names and words", () => {
+    expect(
+      findTaskKeyMentions(
+        "clk-12 src/CLK-3 CLK-4-export XCLK-5a CLK-6@acme.test encode as utf-8",
+      ),
+    ).toEqual([]);
+  });
+
+  it("finds nothing in an empty summary", () => {
+    expect(findTaskKeyMentions(null)).toEqual([]);
   });
 });

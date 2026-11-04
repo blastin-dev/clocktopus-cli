@@ -175,6 +175,7 @@ function taskViewOf(
     goal: readGoal(panel.goal),
     attribution: {
       ...session,
+      taskCheckout: null,
       isKnown: tie.known === true,
       countsTowardTask: tie.countsTowardTask === true,
       currentKey: text(tie.currentKey),
@@ -257,17 +258,28 @@ export function sessionRows(attribution: Attribution, task: Task): Row[] {
               value: `✓ Counts toward ${task.key} by its branch`,
               color: "success",
             },
-    {
-      label: "Branch",
-      value: attribution.branch
-        ? `${attribution.branch}${attribution.branchKey ? "" : " (no task)"}`
-        : "detached HEAD",
-    },
   ];
-  if (attribution.checkout) {
+  const { taskCheckout } = attribution;
+  const ownBranch = attribution.branch
+    ? `${attribution.branch}${attribution.branchKey ? "" : " (no task)"}`
+    : "detached HEAD";
+  rows.push({
+    label: "Branch",
+    value: taskCheckout ? taskCheckout.branch : ownBranch,
+  });
+  const checkout = taskCheckout?.checkout ?? attribution.checkout;
+  if (checkout) {
     rows.push({
       label: "Worktree",
-      value: `${attribution.checkout.path}${attribution.checkout.isWorktree ? "" : " (main checkout)"}`,
+      value: `${checkout.path}${checkout.isWorktree ? "" : " (main checkout)"}`,
+    });
+  }
+  if (taskCheckout) {
+    rows.push({
+      label: "Started in",
+      value: attribution.checkout
+        ? `${attribution.checkout.path} on ${ownBranch}`
+        : `branch ${ownBranch}`,
     });
   }
   if (attribution.isKnown)
@@ -315,15 +327,68 @@ export function cliRows(cli: Cli): Row[] {
 export function checkoutOf(stdout: string, home: string | undefined) {
   const [root, gitDir, commonDir] = stdout.trim().split("\n");
   if (!root) return null;
-  const path =
-    home && (root === home || root.startsWith(`${home}/`))
-      ? `~${root.slice(home.length)}`
-      : root;
   // A linked worktree's git dir is `<common dir>/worktrees/<name>`; the main checkout's is the common dir.
   return {
-    path,
+    path: homeRelative(root, home),
     isWorktree: Boolean(gitDir && commonDir && gitDir !== commonDir),
   };
+}
+
+// The task key a branch names, as `extractTaskKeyFromBranch`
+// (`packages/cli-contract/src/task-key.ts`) reads it; a hooks module can't import it, so
+// `claude-plugin-panel.test.ts` holds the two to the same answers.
+const BRANCH_SEGMENT_TASK_KEY =
+  /^([A-Za-z][A-Za-z0-9]*-\d+)(?:[-_]|\.(?!\d)|$)/;
+const BOT_BRANCH = /^(?:dependabot|renovate)\//;
+
+export function branchKeyOf(branch: string) {
+  if (BOT_BRANCH.test(branch)) return null;
+  for (const segment of branch.split("/")) {
+    const raw = segment.match(BRANCH_SEGMENT_TASK_KEY)?.[1];
+    if (raw) return raw.toUpperCase();
+  }
+  return null;
+}
+
+// The one checkout `git worktree list --porcelain` lists on a branch naming `key`; null with
+// none or several, which leave the panel on the session's own checkout.
+export function taskCheckoutOf(
+  porcelain: string,
+  key: string,
+  home: string | undefined,
+) {
+  const checkouts = porcelain
+    .split(/\n\n+/)
+    .map((block, index) => {
+      const lines = block.split("\n");
+      const root = lines
+        .find((line) => line.startsWith("worktree "))
+        ?.slice("worktree ".length);
+      const branch = lines
+        .find((line) => line.startsWith("branch refs/heads/"))
+        ?.slice("branch refs/heads/".length);
+      // A worktree whose folder is gone stays listed, marked `prunable`, until `git worktree prune`.
+      if (lines.some((line) => line.startsWith("prunable"))) return null;
+      // The main checkout is listed first.
+      return root && branch ? { root, branch, isWorktree: index > 0 } : null;
+    })
+    .filter((checkout) => checkout !== null)
+    .filter((checkout) => branchKeyOf(checkout.branch) === key);
+  const [only] = checkouts;
+  if (!only || checkouts.length > 1) return null;
+  return {
+    branch: only.branch,
+    checkout: {
+      path: homeRelative(only.root, home),
+      isWorktree: only.isWorktree,
+    },
+  };
+}
+
+function homeRelative(root: string, home: string | undefined) {
+  return home && (root === home || root.startsWith(`${home}/`))
+    ? `~${root.slice(home.length)}`
+    : root;
 }
 
 // Drops what can carry a credential from a git remote, as `stripRemoteCredentials`

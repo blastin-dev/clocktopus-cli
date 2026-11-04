@@ -1,6 +1,6 @@
 ---
 name: create-task
-description: "Notes a task for later from the user's own words, written so an agent can pick it up without designing the implementation: a title, the problem, why it matters, what to do, what is out of scope, and a kind. Creates it straight away in Clocktopus (or in the tracker the repository's instructions name), without starting it, and adds it to a goal when one is named. Use when the user asks to create, add, note, log or park a task, a to-do or an idea for later. To start on the work now, use start-work instead."
+description: "Notes a task for later from the user's own words, written so an agent can pick it up without designing the implementation: a title, the problem, why it matters, what to do, what is out of scope, and a kind. Creates it straight away in Clocktopus or in the project's tracker, without starting it, and adds it to a goal when one is named. Use when the user asks to create, add, note, log or park a task, a to-do or an idea for later. To start on the work now, use start-work instead."
 argument-hint: '"<what to do>" [goal number (G-3)]'
 ---
 
@@ -20,6 +20,10 @@ task work as [setup.md](setup.md) describes.
 Read it as setup.md describes; on `no_project`, stop. Then search for what the
 user described, as setup.md describes. When an open task clearly covers it,
 say so with its key and title, and create nothing unless the user insists.
+
+When the user names a tracker ticket by its key instead of describing work,
+register it as setup.md describes, skip step 2, and add it to the goal they
+name as step 2 ends.
 
 ## 2. Write it
 

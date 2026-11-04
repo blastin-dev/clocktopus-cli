@@ -88,6 +88,8 @@ export type Checkout = {
 // What the steps settled, for the ones after them.
 export type InitState = {
   organizationId: string | null;
+  // The project the repository is in, once this run knows it.
+  projectId: string | null;
   projectName: string | null;
   // How this run connected the repository; null when it did not.
   connectedBy: "app" | "manual" | null;

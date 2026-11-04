@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.12.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.11.0...cli-v0.12.0) (2026-11-04)
+
+
+### Features
+
+* **clk-82:** create a project's tasks in the connected tracker its tickets come from ([c9a918a](https://github.com/blastin-dev/clocktopus/commit/c9a918a1637950cc4c604855f96584c8d4826d68))
+* **clk-84:** declare the ticket prefixes a checkout uses during init ([b74058d](https://github.com/blastin-dev/clocktopus/commit/b74058d8b379f56943a3878b69fcae00fec45192))
+* **clk-85:** date a registered ticket from the tracker and follow its key ([37954c5](https://github.com/blastin-dev/clocktopus/commit/37954c54a6d053248fac80e543ec25e1a1a2f3e9))
+* **clk-85:** register tasks created in a tracker and tracker tickets the user names ([eee14dd](https://github.com/blastin-dev/clocktopus/commit/eee14ddbabe358a8666e1650c247ec081b3e53c4))
+* **clk-86:** plan a goal from a Linear or Jira ticket with create-goal ([4f51cfa](https://github.com/blastin-dev/clocktopus/commit/4f51cfa245f6e7bdba0b1e5efa1e636ab7d7b414))
+* **clk-86:** plan a ticket's goal as sub-tasks in its tracker ([6c31477](https://github.com/blastin-dev/clocktopus/commit/6c31477c3a642c6c310818e097cdb8cb0c8835ce))
+* **clk-97:** show the worktree the session's task is worked in on the panel ([b721c21](https://github.com/blastin-dev/clocktopus/commit/b721c21d29891e6f27323fc74affa97eeeef1777))
+* **clk-97:** show the worktree the session's task is worked in on the panel ([0bd42c8](https://github.com/blastin-dev/clocktopus/commit/0bd42c82e6831842f6c50c7821e7d6f0058aea40))
+* **clk-98:** add a register-ticket skill other workflows can call ([1f998b1](https://github.com/blastin-dev/clocktopus/commit/1f998b1f0fb69c13a0088c414db86f5677913dd1))
+* **clk-98:** add a register-ticket skill other workflows can call ([98d9a8e](https://github.com/blastin-dev/clocktopus/commit/98d9a8e6c6e3f397d4e314e98a824cee0aaeb46e))
+
+
+### Bug Fixes
+
+* **clk-77:** tie a session to the task of the branch it moves to ([7f21be8](https://github.com/blastin-dev/clocktopus/commit/7f21be88090a918d18660ca44e731c3649c94773))
+* **clk-84:** declare only prefixes at least two commits or branches use ([14e56fd](https://github.com/blastin-dev/clocktopus/commit/14e56fdb72a78544194049e9adfcc545e444b683))
+* **clk-86:** take any key outside the project's prefix as a ticket in create-goal ([b361cf5](https://github.com/blastin-dev/clocktopus/commit/b361cf567fb0f01e2d2668da6613642fb375325a))
+* **clk-95:** list tasks while no git provider is connected ([7f66dd9](https://github.com/blastin-dev/clocktopus/commit/7f66dd927aa39054b4d8b249bfc8d5b301b83454))
+* **clk-97:** skip a deleted worktree git still lists when following the task's checkout ([fcbc6a2](https://github.com/blastin-dev/clocktopus/commit/fcbc6a2c4ce0274b4c6a6783e5422849dca61170))
+* **clk-98:** register only the project's tracker prefixes, and list the skill everywhere ([62f1de5](https://github.com/blastin-dev/clocktopus/commit/62f1de5a107feae842589c4fcdf2b25d3071f1e8))
+
 ## [0.11.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.10.0...cli-v0.11.0) (2026-10-29)
 
 

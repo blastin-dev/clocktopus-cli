@@ -105,6 +105,8 @@ type World = {
   remote?: string | null;
   // Whether the session runs in a linked worktree rather than the main checkout.
   worktree?: boolean;
+  // `git worktree list --porcelain`'s; none when absent.
+  worktrees?: string;
   // Whether Clocktopus has seen the session, and the task it last tied it to.
   isKnown: boolean;
   currentKey?: string;
@@ -292,13 +294,15 @@ function engine(on: On, world: World) {
     const stdout =
       e.argv[0] === "ssh"
         ? `user dana\nhostname ${e.argv[2] === "github-acme" ? "github.com" : e.argv[2]}\nport 22\n`
-        : e.argv.includes("--show-toplevel")
-          ? world.worktree
-            ? `/home/dana/work/acme-portal-export\n/home/dana/work/acme-portal/.git/worktrees/acme-portal-export\n/home/dana/work/acme-portal/.git\n`
-            : `/home/dana/work/acme-portal\n/home/dana/work/acme-portal/.git\n/home/dana/work/acme-portal/.git\n`
-          : e.argv.includes("rev-parse")
-            ? "/work/acme-portal/.git\n"
-            : `${world.branch}\n`;
+        : e.argv.includes("--porcelain")
+          ? (world.worktrees ?? "")
+          : e.argv.includes("--show-toplevel")
+            ? world.worktree
+              ? `/home/dana/work/acme-portal-export\n/home/dana/work/acme-portal/.git/worktrees/acme-portal-export\n/home/dana/work/acme-portal/.git\n`
+              : `/home/dana/work/acme-portal\n/home/dana/work/acme-portal/.git\n/home/dana/work/acme-portal/.git\n`
+            : e.argv.includes("rev-parse")
+              ? "/work/acme-portal/.git\n"
+              : `${world.branch}\n`;
     return {
       value: {
         exitCode: 0,
@@ -836,6 +840,47 @@ test("the pane names the checkout: the main one, or the linked worktree the sess
   expect((await pane.find({ type: "Text", text: /^~\// }))?.text).toBe(
     "~/work/acme-portal-export",
   );
+  await pane.unmount();
+});
+
+test("a session tied to a task worked in another worktree shows that worktree and where it started", async ($, on) => {
+  const world = reported({ "ACME-42": 1, "ACME-43": 1 }, "ACME-43");
+  world.worktrees = [
+    "worktree /home/dana/work/acme-portal\nHEAD 1111\nbranch refs/heads/dana/acme-42-export",
+    "worktree /home/dana/work/acme-portal-run\nHEAD 2222\nbranch refs/heads/dana/acme-43-email",
+  ].join("\n\n");
+  const { clock } = engine(on, world);
+  await $.session.start(START);
+  await clock.settle();
+
+  let pane = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect(
+    await pane.find({ type: "Text", text: "dana/acme-43-email" }),
+  ).toBeTruthy();
+  expect(
+    await pane.find({ type: "Text", text: "~/work/acme-portal-run" }),
+  ).toBeTruthy();
+  expect(
+    await pane.find({
+      type: "Text",
+      text: "~/work/acme-portal on dana/acme-42-export",
+    }),
+  ).toBeTruthy();
+  await pane.unmount();
+
+  // With no checkout on the task's branch, the session's own shows.
+  world.worktrees = undefined;
+  await $.command.run({
+    command: "clocktopus-panel",
+    args: "refresh",
+    origin: { kind: "composer" },
+    presentation: { isFullscreen: false, columns: 120 },
+  });
+  pane = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect((await pane.find({ type: "Text", text: /^~\// }))?.text).toBe(
+    "~/work/acme-portal (main checkout)",
+  );
+  expect(await pane.find({ type: "Text", text: /^~\/.* on / })).toBeFalsy();
   await pane.unmount();
 });
 

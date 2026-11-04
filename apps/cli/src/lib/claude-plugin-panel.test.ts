@@ -4,9 +4,11 @@ import {
   SessionPanelSchema,
   TaskStageSchema,
 } from "@repo/cli-contract/session-panel";
+import { extractTaskKeyFromBranch } from "@repo/cli-contract/task-key";
 import { describe, expect, it } from "vitest";
 
 import {
+  branchKeyOf,
   checkoutOf,
   cliRows,
   colorOf,
@@ -20,6 +22,7 @@ import {
   STAGE_LABEL,
   stageOf,
   statusLine,
+  taskCheckoutOf,
   versionIn,
   viewOf,
   withoutCredentials,
@@ -100,6 +103,7 @@ describe("viewOf", () => {
       },
       attribution: {
         ...SESSION,
+        taskCheckout: null,
         isKnown: true,
         countsTowardTask: true,
         currentKey: null,
@@ -441,6 +445,26 @@ describe("sessionRows", () => {
       sessionRows({ ...attribution!, branchKey: null }, task!)[2]?.value,
     ).toBe("dana/acme-42-export-invoices (no task)");
   });
+
+  it("shows the task's worktree, and where the session started", () => {
+    const taskCheckout = {
+      branch: "dana/acme-43-totals",
+      checkout: { path: "~/work/acme-portal-run", isWorktree: true },
+    };
+    const rows = (overrides: object) =>
+      sessionRows({ ...attribution!, taskCheckout, ...overrides }, task!)
+        .map((row) => [row.label, row.value])
+        .slice(2, 5);
+    expect(rows({})).toEqual([
+      ["Branch", "dana/acme-43-totals"],
+      ["Worktree", "~/work/acme-portal-run"],
+      ["Started in", "~/work/acme-portal on dana/acme-42-export-invoices"],
+    ]);
+    expect(rows({ checkout: null, branchKey: null })[2]).toEqual([
+      "Started in",
+      "branch dana/acme-42-export-invoices (no task)",
+    ]);
+  });
 });
 
 describe("stages and amounts", () => {
@@ -535,6 +559,61 @@ describe("remotes", () => {
     expect(sshHostOf("git@Bitbucket.org:acme-co/acme-portal.git")).toBeNull();
     expect(sshHostOf("https://github.com/acme-co/acme-portal.git")).toBeNull();
     expect(sshHostOf("-oProxyCommand=evil:acme-co/acme-portal.git")).toBeNull();
+  });
+});
+
+describe("branchKeyOf", () => {
+  it("reads a branch's task key as the shared contract does", () => {
+    for (const branch of [
+      "dana/acme-42-export-invoices",
+      "ACME-42",
+      "acme-42_export",
+      "feature/add-oauth-2",
+      "release-1.0",
+      "release/2",
+      "dependabot/github_actions/actions/checkout-7",
+      "dana/acme-7.x-fix",
+      "main",
+    ]) {
+      expect(branchKeyOf(branch), branch).toBe(
+        extractTaskKeyFromBranch(branch),
+      );
+    }
+  });
+});
+
+describe("taskCheckoutOf", () => {
+  const porcelain = [
+    "worktree /home/dana/work/acme-portal\nHEAD 1111\nbranch refs/heads/dana/acme-41-goal-start",
+    "worktree /home/dana/work/acme-portal-run\nHEAD 2222\nbranch refs/heads/dana/acme-43-totals",
+    "worktree /home/dana/work/acme-portal-old\nHEAD 3333\ndetached",
+  ].join("\n\n");
+
+  it("finds the one worktree on a branch naming the task", () => {
+    expect(taskCheckoutOf(`${porcelain}\n`, "ACME-43", "/home/dana")).toEqual({
+      branch: "dana/acme-43-totals",
+      checkout: { path: "~/work/acme-portal-run", isWorktree: true },
+    });
+    expect(taskCheckoutOf(porcelain, "ACME-41", "/home/dana")).toEqual({
+      branch: "dana/acme-41-goal-start",
+      checkout: { path: "~/work/acme-portal", isWorktree: false },
+    });
+  });
+
+  it("finds none when no checkout or several have the task's branch", () => {
+    expect(taskCheckoutOf(porcelain, "ACME-44", "/home/dana")).toBeNull();
+    const twice = `${porcelain}\n\nworktree /srv/acme-43\nHEAD 4444\nbranch refs/heads/acme-43-again`;
+    expect(taskCheckoutOf(twice, "ACME-43", "/home/dana")).toBeNull();
+  });
+
+  it("skips a worktree whose folder was deleted but not pruned", () => {
+    const gone =
+      "worktree /srv/acme-43\nHEAD 4444\nbranch refs/heads/acme-43-again\nprunable gitdir file points to non-existent location";
+    expect(
+      taskCheckoutOf(`${porcelain}\n\n${gone}`, "ACME-43", "/home/dana")
+        ?.checkout.path,
+    ).toBe("~/work/acme-portal-run");
+    expect(taskCheckoutOf(gone, "ACME-43", "/home/dana")).toBeNull();
   });
 });
 

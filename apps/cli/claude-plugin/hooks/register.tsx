@@ -17,6 +17,7 @@ import {
   sshHostOf,
   stageOf,
   statusLine,
+  taskCheckoutOf,
   text,
   totalOf,
   versionIn,
@@ -160,12 +161,15 @@ async function load(
   const { server, refusal } = await connect($);
   if (!server) return hidden(refusal);
 
-  const [branch, checkout, sessionId, versions] = await Promise.all([
-    currentBranch($),
-    currentCheckout($).catch(() => null),
-    $.session.id(),
-    localVersions($),
-  ]);
+  const [branch, checkout, sessionId, versions, worktrees, home] =
+    await Promise.all([
+      currentBranch($),
+      currentCheckout($).catch(() => null),
+      $.session.id(),
+      localVersions($),
+      worktreeList($).catch(() => null),
+      $.env.get("HOME"),
+    ]);
   const cliVersion = versions.installed ?? versions.plugin;
   const panel = await callClocktopus($, server, "get_session_panel", {
     repositoryUrl,
@@ -174,11 +178,29 @@ async function load(
     ...(branch ? { branch } : {}),
     ...(cliVersion ? { cliVersion } : {}),
   });
-  return viewOf(
+  const view = viewOf(
     panel,
     { sessionId, branch: branch ?? null, checkout },
     versions,
   );
+  const tie = view.attribution;
+  const taskCheckout =
+    tie?.currentKey && tie.currentKey !== tie.branchKey && worktrees
+      ? taskCheckoutOf(worktrees, tie.currentKey, home)
+      : null;
+  return tie && taskCheckout
+    ? { ...view, attribution: { ...tie, taskCheckout } }
+    : view;
+}
+
+// Read on every refresh, beside the server call, so a tie to another worktree's task costs no
+// extra wait.
+async function worktreeList($: EngineInterface) {
+  const { exitCode, stdout } = await $.process.run(
+    ["git", "worktree", "list", "--porcelain"],
+    { timeoutMs: 2000 },
+  );
+  return exitCode === 0 ? stdout : null;
 }
 
 // Set once this module has asked to open the pane; `wasPaneOffered` outlives a reload.

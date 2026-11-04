@@ -28,6 +28,7 @@ import { readCheckout } from "./checkout.js";
 import { runEmailStep } from "./email.js";
 import { runProjectStep } from "./project.js";
 import { runRepositoryStep } from "./repository.js";
+import { runTrackerKeyPrefixStep } from "./tracker-key-prefixes.js";
 import { INIT_STEPS, InitCancelledError } from "./types.js";
 import { runVerifyStep } from "./verify.js";
 import { runYouStep } from "./you.js";
@@ -86,6 +87,7 @@ export async function runInit(
   const skipped = parseSkippedSteps(options.skip, options.only);
   const state: InitState = {
     organizationId: null,
+    projectId: null,
     projectName: null,
     connectedBy: null,
   };
@@ -114,6 +116,9 @@ export async function runInit(
     onboarding = OnboardingStateSchema.parse(
       await deps.api.get("/api/onboarding"),
     );
+    if (!skipped.has("project")) {
+      await runTrackerKeyPrefixStep(deps, onboarding, state);
+    }
     status = await fetchStatus(deps, checkout);
   }
 
