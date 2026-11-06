@@ -42,7 +42,7 @@ export type Attribution = {
   // The checkout's root, `~` for the home directory; `isWorktree` for a linked worktree.
   checkout: { path: string; isWorktree: boolean } | null
   // The one worktree on the branch of the task the session is tied to, when its own branch
-  // names another task or none, as in a goal run; the panel shows it in place of `checkout`.
+  // names another task or none; the panel shows it in place of `checkout`.
   taskCheckout: {
     branch: string
     checkout: { path: string; isWorktree: boolean }

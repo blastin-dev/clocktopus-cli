@@ -300,7 +300,8 @@ function engine(on: On, world: World) {
         : e.argv.includes("--porcelain")
           ? (world.worktrees ?? "")
           : e.argv.includes("--show-toplevel")
-            ? world.worktree
+            ? world.worktree ||
+              e.init?.cwd?.startsWith("/home/dana/work/acme-portal-export")
               ? `/home/dana/work/acme-portal-export\n/home/dana/work/acme-portal/.git/worktrees/acme-portal-export\n/home/dana/work/acme-portal/.git\n`
               : `/home/dana/work/acme-portal\n/home/dana/work/acme-portal/.git\n/home/dana/work/acme-portal/.git\n`
             : e.argv.includes("rev-parse")
@@ -348,8 +349,10 @@ function engine(on: On, world: World) {
       },
     };
   });
+  // `__failing_tool` and a Bash command running `false` report an error.
   on("tool.call", (_, e) =>
-    e.tool.endsWith("__failing_tool")
+    e.tool.endsWith("__failing_tool") ||
+    (e.tool === "Bash" && /\bfalse\b/.test(String({ ...e }.command)))
       ? { result: {}, text: "failed", isError: true }
       : { result: {}, text: "{}" },
   );
@@ -765,6 +768,49 @@ test("a branch switch in Bash and EnterWorktree refresh", async ($, on) => {
   await $.tool.call({ tool: "EnterWorktree", name: "acme-42" });
   await clock.settle();
   expect(calls.length).toBe(before + 1);
+});
+
+test("writing or a failed cd in another worktree of the repository tells the model once to move the session there", async ($, on) => {
+  const { clock } = engine(on, reported({ "ACME-42": 1 }));
+  await $.session.start(START);
+  await clock.settle();
+  const NOTE =
+    /EnterWorktree tool and path "\/home\/dana\/work\/acme-portal-export"/;
+
+  const bash = await $.tool.call({
+    tool: "Bash",
+    command: "cd /home/dana/work/acme-portal-export && false",
+  });
+  expect(bash.isError).toBe(true);
+  expect(bash.context?.[0]).toMatch(NOTE);
+  const edit = await $.tool.call({
+    tool: "Edit",
+    file_path: "/home/dana/work/acme-portal-export/src/a.ts",
+  });
+  expect(edit.context ?? []).toEqual([]);
+});
+
+test("reads, the session's own checkout and subagents' calls get no note to move", async ($, on) => {
+  const { clock } = engine(on, reported({ "ACME-42": 1 }));
+  await $.session.start(START);
+  await clock.settle();
+
+  const read = await $.tool.call({
+    tool: "Read",
+    file_path: "/home/dana/work/acme-portal-export/src/a.ts",
+  });
+  expect(read.context ?? []).toEqual([]);
+  const own = await $.tool.call({
+    tool: "Edit",
+    file_path: "/home/dana/work/acme-portal/src/a.ts",
+  });
+  expect(own.context ?? []).toEqual([]);
+  const subagent = await $.tool.call({
+    tool: "Edit",
+    agentId: "agent-1",
+    file_path: "/home/dana/work/acme-portal-export/src/a.ts",
+  });
+  expect(subagent.context ?? []).toEqual([]);
 });
 
 test("a change to another watched file does not refresh", async ($, on) => {

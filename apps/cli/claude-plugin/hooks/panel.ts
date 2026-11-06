@@ -324,14 +324,21 @@ export function cliRows(cli: Cli): Row[] {
 }
 
 // `stdout` is `git rev-parse --path-format=absolute --show-toplevel --git-dir --git-common-dir`'s.
-export function checkoutOf(stdout: string, home: string | undefined) {
+export function revParseOf(stdout: string) {
   const [root, gitDir, commonDir] = stdout.trim().split("\n");
-  if (!root) return null;
+  if (!root || !gitDir || !commonDir) return null;
   // A linked worktree's git dir is `<common dir>/worktrees/<name>`; the main checkout's is the common dir.
-  return {
-    path: homeRelative(root, home),
-    isWorktree: Boolean(gitDir && commonDir && gitDir !== commonDir),
-  };
+  return { root, gitDir, commonDir, isWorktree: gitDir !== commonDir };
+}
+
+export function checkoutOf(stdout: string, home: string | undefined) {
+  const checkout = revParseOf(stdout);
+  return checkout
+    ? {
+        path: homeRelative(checkout.root, home),
+        isWorktree: checkout.isWorktree,
+      }
+    : null;
 }
 
 // The files `clocktopus realtime watch` touches on each change hint that can

@@ -27,6 +27,11 @@ import {
   withoutCredentials,
   withSshConfig,
 } from "./panel";
+import {
+  strayWorktreeNote,
+  strayWorktreeOf,
+  workedInOf,
+} from "./stray-worktree";
 
 const PANE = "clocktopus-goal";
 const PANE_TITLE = "Clocktopus";
@@ -104,18 +109,19 @@ async function canonicalRemote($: EngineInterface, remote: string) {
   return withSshConfig(remote, sshConfigs.get(host) ?? "");
 }
 
+const REV_PARSE = [
+  "git",
+  "rev-parse",
+  "--path-format=absolute",
+  "--show-toplevel",
+  "--git-dir",
+  "--git-common-dir",
+];
+
 async function currentCheckout($: EngineInterface) {
-  const { exitCode, stdout } = await $.process.run(
-    [
-      "git",
-      "rev-parse",
-      "--path-format=absolute",
-      "--show-toplevel",
-      "--git-dir",
-      "--git-common-dir",
-    ],
-    { timeoutMs: 2000 },
-  );
+  const { exitCode, stdout } = await $.process.run(REV_PARSE, {
+    timeoutMs: 2000,
+  });
   if (exitCode !== 0) return null;
   return checkoutOf(stdout, await $.env.get("HOME"));
 }
@@ -204,6 +210,19 @@ async function worktreeList($: EngineInterface) {
   );
   return exitCode === 0 ? stdout : null;
 }
+
+async function strayWorktree($: EngineInterface, workedIn: string) {
+  const [session, worked] = await Promise.all([
+    $.process.run(REV_PARSE, { timeoutMs: 2000 }),
+    $.process.run(REV_PARSE, { cwd: workedIn, timeoutMs: 2000 }),
+  ]);
+  return session.exitCode === 0 && worked.exitCode === 0
+    ? strayWorktreeOf(session.stdout, worked.stdout)
+    : null;
+}
+
+// The worktrees the model has been told to move into, so each is named once a session.
+const notedWorktrees = new Set<string>();
 
 // Set once this module has asked to open the pane; `wasPaneOffered` outlives a reload.
 let isPaneOffered = false;
@@ -309,6 +328,7 @@ const refreshLater = ($: EngineInterface) => void refresh($).catch(() => {});
 export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
     const started = await next(e);
+    notedWorktrees.clear();
     await $.command.register({
       name: "clocktopus-panel",
       description:
@@ -390,12 +410,23 @@ export const register: Register = (on) => {
 
   on("tool.call", async ($, e, next) => {
     const result = await next(e);
-    if (result.deny !== undefined || result.isError) return result;
+    if (result.deny !== undefined) return result;
     const input: Record<string, unknown> = { ...e };
     // The call already ran: the model doesn't wait on the refresh.
-    if (isRefreshingCall(e.tool, text(input.command))) refreshLater($);
+    if (!result.isError && isRefreshingCall(e.tool, text(input.command)))
+      refreshLater($);
 
-    return result;
+    // A failed call still worked where it names, as `cd <worktree> && pnpm test` with a failing
+    // test does. A subagent's calls run in its own folder, which `$.process.run` doesn't start in.
+    const workedIn = e.agentId ? null : workedInOf(e.tool, input);
+    if (!workedIn) return result;
+    const stray = await strayWorktree($, workedIn).catch(() => null);
+    if (!stray || notedWorktrees.has(stray.root)) return result;
+    notedWorktrees.add(stray.root);
+    return {
+      ...result,
+      context: [...(result.context ?? []), strayWorktreeNote(stray)],
+    };
   });
 
   // The footer's mode labels, not `$.ui.status`: the terminal draws a plugin's status as a warning.
