@@ -147,6 +147,8 @@ function engine(on: On, world: World) {
   const opens: string[] = [];
   const opened: string[] = [];
   const copied: string[] = [];
+  // Every `clocktopus …` the plugin ran, as argv after `clocktopus`.
+  const cli: string[][] = [];
   const clock = mock.clock(on, { now: Date.UTC(2026, 9, 26, 9, 30) });
   mock.env(on, { HOME: "/home/dana" });
   const describe = (key: string | null) => {
@@ -280,6 +282,7 @@ function engine(on: On, world: World) {
   }));
   on("process.run", (_, e) => {
     if (e.argv[0] === "clocktopus") {
+      cli.push(e.argv.slice(1));
       return {
         value: {
           exitCode: world.installedCli ? 0 : 127,
@@ -351,7 +354,7 @@ function engine(on: On, world: World) {
       : { result: {}, text: "{}" },
   );
 
-  return { calls, connects, clock, opens, opened, copied };
+  return { calls, connects, clock, opens, opened, copied, cli };
 }
 
 test("the status line, band and pane show the branch task, its goal and the attribution", async ($, on) => {
@@ -673,7 +676,7 @@ test("the checkout’s HEAD is watched, and a branch switch there refreshes", as
   const { clock } = engine(on, world);
   await $.session.start(START);
   const started = await $.classic.SessionStart({ source: "startup" });
-  expect(started.watchPaths).toEqual(["/work/acme-portal/.git/HEAD"]);
+  expect(started.watchPaths?.[0]).toBe("/work/acme-portal/.git/HEAD");
   await clock.settle();
   expect(await footer($)).toBe("Clocktopus: branch main names no task");
 
@@ -684,6 +687,41 @@ test("the checkout’s HEAD is watched, and a branch switch there refreshes", as
   });
   await clock.settle();
   expect(await footer($)).toBe("ACME-42 · in progress · G-2 1/4 · attributed");
+});
+
+test("the session starts this machine's realtime watcher and refreshes on a change hint", async ($, on) => {
+  const world: World = {
+    branch: "main",
+    isKnown: true,
+    shares: { "ACME-42": 1 },
+  };
+  const { clock, calls, cli } = engine(on, world);
+  await $.session.start(START);
+  const started = await $.classic.SessionStart({ source: "startup" });
+  expect(cli).toContainEqual(["realtime", "watch", "--detach"]);
+  expect(started.watchPaths).toEqual([
+    "/work/acme-portal/.git/HEAD",
+    "/home/dana/.clocktopus/realtime/tasks",
+    "/home/dana/.clocktopus/realtime/pull-requests",
+    "/home/dana/.clocktopus/realtime/agent-sessions",
+    "/home/dana/.clocktopus/realtime/time-entries",
+  ]);
+  await clock.settle();
+  const before = calls.length;
+
+  await $.classic.FileChanged({
+    file_path: "/home/dana/.clocktopus/realtime/status",
+    event: "change",
+  });
+  await clock.settle();
+  expect(calls.length).toBe(before);
+
+  await $.classic.FileChanged({
+    file_path: "/home/dana/.clocktopus/realtime/tasks",
+    event: "change",
+  });
+  await clock.settle();
+  expect(calls.length).toBe(before + 1);
 });
 
 test("moving to another directory refreshes", async ($, on) => {

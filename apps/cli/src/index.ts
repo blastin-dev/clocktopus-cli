@@ -1,8 +1,11 @@
 import { createRequire } from "node:module";
+import { TODO_LIMIT_DEFAULT } from "@repo/cli-contract/task-board";
 import { Command } from "commander";
 import { z } from "zod";
 
 import type { InitOptions } from "./commands/init/types.js";
+import type { RealtimeWatchOptions } from "./commands/realtime.js";
+import type { TasksOptions } from "./commands/tasks.js";
 import type { Environment } from "./lib/config.js";
 import { contextCommand } from "./commands/agent/context.js";
 import { disableCommand } from "./commands/agent/disable.js";
@@ -19,6 +22,8 @@ import {
 import { initCommand } from "./commands/init/index.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
+import { realtimeWatchCommand } from "./commands/realtime.js";
+import { tasksCommand } from "./commands/tasks.js";
 import { upgradeCommand } from "./commands/upgrade.js";
 import { whoamiCommand } from "./commands/whoami.js";
 import { refreshIfUpgraded } from "./lib/agent-refresh.js";
@@ -40,6 +45,7 @@ const REFRESHES_ITSELF = new Set([
   "agent refresh",
   "agent hook",
   "agent context",
+  "realtime watch",
   "upgrade",
 ]);
 
@@ -164,6 +170,38 @@ program
   .command("whoami")
   .description("Display the currently logged in user")
   .action(whoamiCommand);
+
+program
+  .command("tasks")
+  .description(
+    "Show the open tasks of this checkout's Clocktopus project: to do, in progress and in review, with the agents working on them",
+  )
+  .option("--json", "Print the board as JSON")
+  .option(
+    "--repository <url>",
+    "The repository's remote URL (default: this checkout's origin)",
+  )
+  .option("--org <id>", "The organisation, when several link the repository")
+  .option(
+    "--limit <n>",
+    `How many to do tasks to list (default: ${TODO_LIMIT_DEFAULT})`,
+  )
+  .action((options: TasksOptions) => tasksCommand(options));
+
+const realtime = program
+  .command("realtime")
+  .description("Follow Clocktopus's change hints on this machine");
+
+realtime
+  .command("watch")
+  .description(
+    "Hold one realtime connection for this machine and touch a file per topic under ~/.clocktopus/realtime on each change",
+  )
+  .option(
+    "--detach",
+    "Renew the lease and start a watcher in the background when none runs, then return",
+  )
+  .action((options: RealtimeWatchOptions) => realtimeWatchCommand(options));
 
 const clock = program
   .command("clock")

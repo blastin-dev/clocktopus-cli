@@ -334,6 +334,26 @@ export function checkoutOf(stdout: string, home: string | undefined) {
   };
 }
 
+// The files `clocktopus realtime watch` touches on each change hint that can
+// change this panel, under `~/.clocktopus/realtime`
+// (`src/lib/realtime-watch.ts`, whose `BOARD_TOPICS` and `realtimeDir` these
+// repeat because a hooks module can't import the CLI; `realtime-watch.test.ts`
+// holds them the same).
+export const REALTIME_TOPICS = [
+  "tasks",
+  "pull-requests",
+  "agent-sessions",
+  "time-entries",
+];
+
+export const realtimeDirOf = (home: string) => `${home}/.clocktopus/realtime`;
+
+export const realtimeWatchPaths = (home: string) =>
+  REALTIME_TOPICS.map((topic) => `${realtimeDirOf(home)}/${topic}`);
+
+export const isRealtimeHint = (path: string, home: string) =>
+  realtimeWatchPaths(home).includes(path);
+
 // The task key a branch names, as `extractTaskKeyFromBranch`
 // (`packages/cli-contract/src/task-key.ts`) reads it; a hooks module can't import it, so
 // `claude-plugin-panel.test.ts` holds the two to the same answers.

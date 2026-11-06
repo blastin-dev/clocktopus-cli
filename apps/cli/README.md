@@ -158,6 +158,51 @@ Clear stored credentials.
 
 Display the current authenticated user.
 
+### `clocktopus tasks`
+
+```
+clocktopus tasks [--json] [--repository <url>] [--org <id>] [--limit <n>]
+```
+
+The open tasks of the Clocktopus project this checkout's `origin` belongs to,
+grouped as To do, In progress and In review, with the agents working on each
+now. To do lists the project's active goals' tasks in goal order, then the
+newest, up to `--limit` (30 by default). In progress and In review leave out a
+task nothing has touched for 30 days, unless an agent is working on it.
+
+`--json` prints one JSON object whatever happens, for programs that show the
+board: the board as `GET /api/agent/task-board`
+returns it (`TaskBoardSchema` in `@repo/cli-contract/task-board`), with your
+own agent sessions on each task and where they ran, and the project's active
+goals with their tasks' keys, or a `status` of
+`signed_out`, `not_a_repository` or `error`. It exits with `1` on any of
+those.
+
+### `clocktopus realtime watch`
+
+```
+clocktopus realtime watch [--detach]
+```
+
+Follows Clocktopus's change hints on this machine, so panels move when the
+work does instead of on their next poll. It holds one realtime connection,
+with a token from `GET /api/realtime/connection` that it renews on every
+reconnect, subscribed to your channel and each of your organisations'. On
+each hint it rewrites a file named after the topic under
+`~/.clocktopus/realtime`: `tasks`, `pull-requests`, `agent-sessions` or
+`time-entries`, the topics a task board shows (a commit that starts a task
+arrives only as `time-entries`). It rewrites all of them after a reconnect,
+since hints sent while it was down are lost. `status` there says whether it is
+`connected`, `offline`, `disabled` (the server has no realtime) or `stopped`.
+
+One runs per machine: a second exits at once. `--detach` is what clients run:
+it renews the `lease` file, creates the topic files, and starts a watcher in
+the background when none runs, then prints `{ pid, started, dir }`. For an
+hour after a watcher found the server `disabled`, it starts none. The
+watcher stops once no client has renewed the lease for 15 minutes. The Claude
+Code plugin runs it at session start and every two minutes, and refreshes its
+panel when a topic's file changes. It needs Node 22 or newer.
+
 ### `clocktopus clock (in|out)`
 
 ```

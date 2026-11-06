@@ -10,9 +10,11 @@ import {
   colorOf,
   duration,
   hidden,
+  isRealtimeHint,
   isRecord,
   isRefreshingCall,
   messageOf,
+  realtimeWatchPaths,
   sessionRows,
   sshHostOf,
   stageOf,
@@ -292,6 +294,15 @@ function refresh($: EngineInterface): Promise<void> {
   return running;
 }
 
+// Starts this machine's `clocktopus realtime watch` when none runs, and renews
+// its lease, so a change hint refreshes the panel at once; the periodic refresh
+// stays as the fallback. Without the CLI, or signed out, it does nothing.
+const startRealtimeWatcher = ($: EngineInterface) =>
+  $.process
+    .run(["clocktopus", "realtime", "watch", "--detach"], { timeoutMs: 5000 })
+    .then(() => undefined)
+    .catch(() => undefined);
+
 // A refresh nothing waits on; its failure is already in the view.
 const refreshLater = ($: EngineInterface) => void refresh($).catch(() => {});
 
@@ -305,7 +316,10 @@ export const register: Register = (on) => {
       argumentHint: "[refresh|band]",
       immediate: true,
     });
-    $.clock.every(REFRESH_MS, () => refreshLater($));
+    $.clock.every(REFRESH_MS, () => {
+      refreshLater($);
+      void startRealtimeWatcher($);
+    });
     refreshLater($);
 
     return started;
@@ -314,15 +328,27 @@ export const register: Register = (on) => {
   // Only SessionStart can name files for the engine to watch; it raises FileChanged for them.
   on("classic.SessionStart", async ($, e, next) => {
     const result = await next(e);
-    const head = await gitHead($).catch(() => undefined);
-    return head
-      ? { ...result, watchPaths: [...(result.watchPaths ?? []), head] }
-      : result;
+    const [head, home] = await Promise.all([
+      gitHead($).catch(() => undefined),
+      $.env.get("HOME"),
+      startRealtimeWatcher($),
+    ]);
+    const watchPaths = [
+      ...(result.watchPaths ?? []),
+      ...(head ? [head] : []),
+      ...(home ? realtimeWatchPaths(home) : []),
+    ];
+    return { ...result, watchPaths };
   });
 
   on("classic.FileChanged", async ($, e, next) => {
     const result = await next(e);
-    if (/(^|\/)HEAD$/.test(e.file_path)) refreshLater($);
+    const home = await $.env.get("HOME");
+    if (
+      /(^|\/)HEAD$/.test(e.file_path) ||
+      (home && isRealtimeHint(e.file_path, home))
+    )
+      refreshLater($);
     return result;
   });
 
