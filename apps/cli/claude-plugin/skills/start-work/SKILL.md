@@ -169,8 +169,9 @@ describes. For a Clocktopus task (`native`), then update its summary with
 `update_task` so it says what the pull request delivers. Tasks
 from a tracker are edited in the tracker.
 
-Then review the work with the review-work skill: it fixes what it is sure of
-and leaves the rest inline on the pull request, each with a recommended fix.
+Then review the work with the review-work skill: it fixes what it is sure of,
+has a second model settle what is still open, and leaves the rest inline on
+the pull request, each with a recommended fix.
 
 When the repository's instructions forbid an agent committing or pushing,
 stop before that step and say so.
