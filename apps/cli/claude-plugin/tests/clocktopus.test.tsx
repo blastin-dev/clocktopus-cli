@@ -120,6 +120,8 @@ type World = {
   // `clocktopus env --json`'s answer, and the API the plugin's `.mcp.json` names.
   environment?: Record<string, unknown>;
   mcpApiUrl?: string;
+  // `HC_TERMINAL_ID`: the Herdr terminal the session runs in; none when absent.
+  herdrTerminal?: string;
   // What the server answers for the CLI version it is sent.
   cli?: {
     latest: string | null;
@@ -152,8 +154,13 @@ function engine(on: On, world: World) {
   const copied: string[] = [];
   // Every `clocktopus …` the plugin ran, as argv after `clocktopus`.
   const cli: string[][] = [];
+  // Every `hc …` the plugin ran, as argv after `hc`.
+  const herdr: string[][] = [];
   const clock = mock.clock(on, { now: Date.UTC(2026, 9, 26, 9, 30) });
-  mock.env(on, { HOME: "/home/dana" });
+  mock.env(on, {
+    HOME: "/home/dana",
+    ...(world.herdrTerminal ? { HC_TERMINAL_ID: world.herdrTerminal } : {}),
+  });
   const describe = (key: string | null) => {
     const task = key ? TASKS[key] : undefined;
     return task
@@ -307,6 +314,7 @@ function engine(on: On, world: World) {
       };
     }
     if (e.argv[0] === "xdg-open") opened.push(e.argv[1] ?? "");
+    if (e.argv[0] === "hc") herdr.push(e.argv.slice(1));
     const stdout =
       e.argv[0] === "ssh"
         ? `user dana\nhostname ${e.argv[2] === "github-acme" ? "github.com" : e.argv[2]}\nport 22\n`
@@ -370,7 +378,7 @@ function engine(on: On, world: World) {
       : { result: {}, text: "{}" },
   );
 
-  return { calls, connects, clock, opens, opened, copied, cli };
+  return { calls, connects, clock, opens, opened, copied, cli, herdr };
 }
 
 test("the status line, band and pane show the branch task, its goal and the attribution", async ($, on) => {
@@ -565,6 +573,32 @@ test("a branch naming no task says so, and a Clocktopus tool call shows the tie 
   });
   await clock.settle();
   expect(await footer($)).toBe("ACME-42 · in progress · G-2 1/4 · attributed");
+});
+
+test("in a Herdr terminal the label names the task Clocktopus tied the session to, never only its branch's", async ($, on) => {
+  const world: World = {
+    branch: "dana/acme-42-export",
+    isKnown: false,
+    shares: {},
+    herdrTerminal: "t-7",
+  };
+  const { clock, herdr } = engine(on, world);
+  await $.session.start(START);
+  await clock.settle();
+  expect(herdr.at(-1)?.slice(0, 2)).toEqual(["label", "t-7"]);
+  expect(herdr.at(-1)?.[3]).toBe("clocktopus.task=");
+
+  world.isKnown = true;
+  world.currentKey = "ACME-42";
+  world.shares = { "ACME-42": 0 };
+  await $.tool.call({
+    tool: "mcp__plugin_clocktopus_clocktopus__link_session",
+    repositoryUrl: REMOTE,
+    key: "acme-42",
+    agentSessionId: "s-1",
+  });
+  await clock.settle();
+  expect(herdr.at(-1)?.[3]).toBe("clocktopus.task=ACME-42");
 });
 
 test("several organisations linking the repository says so", async ($, on) => {

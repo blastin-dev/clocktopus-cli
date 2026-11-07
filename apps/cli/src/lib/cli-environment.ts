@@ -9,8 +9,8 @@ import { currentInstallMethod, runningScript } from "./install-method.js";
 
 // What `clocktopus env --json` prints and `tasks --json` carries as
 // `environment`: the server this CLI talks to and the build that answered. The
-// Claude Code panel shows a banner from it when either isn't a production
-// release.
+// Herdr and Claude Code panels show a banner from it when either isn't a
+// production release.
 export function describeEnvironment() {
   const apiUrl = getApiUrl();
   const installMethod = currentInstallMethod();

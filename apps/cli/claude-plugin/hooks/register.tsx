@@ -12,6 +12,7 @@ import {
   environmentBanner,
   environmentOf,
   environmentTag,
+  herdrLabelArgs,
   hidden,
   isRealtimeHint,
   isRecord,
@@ -328,6 +329,27 @@ async function refreshOnce($: EngineInterface) {
   }
   await update($, view, () => next);
   await environmentRead.catch(() => undefined);
+  if (next.error === null)
+    await labelHerdrTerminal($, next).catch(() => undefined);
+}
+
+// The labels last put on this session's Herdr terminal, so an unchanged refresh runs no `hc`.
+let herdrLabels: string | null = null;
+
+// Outside a Herdr terminal it does nothing, and a failure only means the next refresh tries
+// again.
+async function labelHerdrTerminal($: EngineInterface, next: View) {
+  const tie = next.attribution;
+  const terminal = await $.env.get("HC_TERMINAL_ID");
+  if (!terminal || !tie) return;
+  // Only a tie Clocktopus made: a branch alone doesn't put its task on the panel.
+  const args = herdrLabelArgs(terminal, tie.sessionId, tie.currentKey ?? null);
+  const labels = args.join(" ");
+  if (labels === herdrLabels) return;
+  const { exitCode } = await $.process.run(["hc", ...args], {
+    timeoutMs: 2000,
+  });
+  if (exitCode === 0) herdrLabels = labels;
 }
 
 // One refresh at a time; a request made meanwhile runs one more after it.

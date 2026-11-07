@@ -5,8 +5,9 @@ export default [
   ...baseConfig,
   {
     // The Claude Code engine's declarations, copied verbatim by
-    // `scripts/claude-code-types.sh`.
-    ignores: ["claude-plugin/types/claude-code/**"],
+    // `scripts/claude-code-types.sh`, and those `herdr-app check` writes into
+    // the Herdr mod's folder.
+    ignores: ["claude-plugin/types/claude-code/**", "herdr/**/*.d.ts"],
   },
   {
     plugins: {

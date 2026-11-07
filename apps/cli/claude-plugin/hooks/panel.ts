@@ -361,6 +361,27 @@ export const realtimeWatchPaths = (home: string) =>
 export const isRealtimeHint = (path: string, home: string) =>
   realtimeWatchPaths(home).includes(path);
 
+// The `hc` arguments that label this session's Herdr terminal (`HC_TERMINAL_ID`) with the
+// session and the task it counts toward now, so Herdr's Clocktopus panel
+// (`apps/cli/herdr/mods/clocktopus/model.js`) places it there the moment a tie changes. The
+// label names are `apps/cli/src/lib/herdr-terminal.ts`'s, which a hooks module can't import;
+// `herdr-mod.test.ts` holds the three to the same names.
+export const HERDR_SESSION_LABEL = "clocktopus.session";
+export const HERDR_TASK_LABEL = "clocktopus.task";
+
+export function herdrLabelArgs(
+  terminal: string,
+  sessionId: string,
+  taskKey: string | null,
+) {
+  return [
+    "label",
+    terminal,
+    `${HERDR_SESSION_LABEL}=${sessionId}`,
+    `${HERDR_TASK_LABEL}=${taskKey ?? ""}`,
+  ];
+}
+
 // The task key a branch names, as `extractTaskKeyFromBranch`
 // (`packages/cli-contract/src/task-key.ts`) reads it; a hooks module can't import it, so
 // `claude-plugin-panel.test.ts` holds the two to the same answers.
