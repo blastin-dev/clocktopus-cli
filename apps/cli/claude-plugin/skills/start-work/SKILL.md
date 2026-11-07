@@ -119,26 +119,41 @@ branches (`git branch -r --sort=-committerdate | head`). Use `branchName`
 from `create_task` or `next_task`, or a tracker's suggested branch name, when
 it fits.
 
-- **The current branch carries the task's key:** stay on it.
-- **The branch exists:** switch to it.
-- **The working tree is clean:** create the branch from the up-to-date
-  default branch and switch to it. For a goal's task, when the user's own pull
-  request for an earlier task of the same goal is still open, branch from the
-  top of that stack instead, as [`goal.md`](goal.md) describes.
-- **There are uncommitted changes that belong to other work:** don't carry
-  them across. Create a worktree for the task on the new branch instead, and
-  tell the user where it is.
+Take the first that applies:
 
-**Working in a worktree.** Hooks, panels and the session's own branch go by
-the session's directory, which a `cd` inside one command doesn't move. An
-agent that can move its session moves it into the worktree before working
-there. In Claude Code, create the worktree in the main checkout's
-`.claude/worktrees/<name>` (the main checkout is the parent of
-`git rev-parse --path-format=absolute --git-common-dir`), add
+1. **The current branch carries the task's key:** stay on it.
+2. **The user asked to work in this checkout, or the task's work is already
+   under way in it** (uncommitted changes that belong to the task): switch to
+   the branch here, or create it here from the base case 5 gives, carrying
+   those changes across, unless another checkout has the branch (case 3).
+3. **Another checkout has the task's branch** (`git worktree list`): work in
+   that one.
+4. **This agent can't move its session, and this checkout has no uncommitted
+   changes from other work:** switch to the branch here, or create it here
+   from the base case 5 gives. A worktree would only make it give the full
+   path in every command.
+5. **Otherwise:** create a worktree for the task, so the user's checkout and
+   whatever is open in it stay as they are, and tell the user where it is.
+   Check the branch out in it when the branch exists. Otherwise create it from
+   the trunk (the branch the repository's pull requests target) as the remote
+   has it, `origin/<trunk>` after a fetch, or, for a goal's task whose earlier
+   task's pull request by the user is still open, from the top of that stack,
+   as [`goal.md`](goal.md) describes. Set the new worktree up as the
+   repository's instructions say (dependencies, environment) before running
+   its checks.
+
+**Working in a worktree.** Create it with `git worktree add` in the main
+checkout's `.claude/worktrees/<name>`, named after the task's key in lowercase
+(`clk-12`), or the goal's ref (`g-3`) for a goal run. The main checkout is the
+parent of `git rev-parse --path-format=absolute --git-common-dir`; add
 `.claude/worktrees/` to that common dir's `info/exclude` when git doesn't
-ignore it already, and switch into it with the `EnterWorktree` tool and its
-`path`. An agent that can't move its session gives every command and file
-path in that worktree.
+ignore it already. Hooks, panels and the session's own branch go by the
+session's directory, which a `cd` inside one command doesn't move, so an agent
+that can move its session moves it into the worktree before working there. In
+Claude Code, that is the `EnterWorktree` tool with its `path`, after
+`ExitWorktree` with `action: "keep"` when `EnterWorktree` refuses. An agent
+that can't move its session there gives every command and file path in that
+worktree.
 
 When committing, put the key in the conventional-commit scope as well
 (`feat(clk-12): …`) if the repository uses that format.
