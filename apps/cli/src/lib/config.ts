@@ -1,25 +1,34 @@
 import Conf from "conf";
 
-export const ENVIRONMENTS = {
-  prod: "https://clocktopus.app",
-  staging: "https://staging.clocktopus.app",
-  dev: "http://localhost:3000",
-} as const;
+import {
+  ENVIRONMENTS,
+  PRODUCTION_API_URL,
+  resolveEnvironment,
+} from "./environment.js";
 
-export type Environment = keyof typeof ENVIRONMENTS;
-
-// Never holds the ingest token itself, which lives only in each agent's own config.
 type AgentConfig = {
   tokenId?: string;
   tokenPrefix?: string;
   endpoint?: string;
+  // The ingest token `agent setup` last installed for this environment, so
+  // switching back to it reinstalls that token instead of minting another.
+  ingestToken?: string;
   /** ISO timestamp. */
   configuredAt?: string;
 };
 
+type EnvironmentSlot = { accessToken?: string; agent?: AgentConfig };
+
 type ConfigSchema = {
+  // Production's login and agent setup, at the top level where CLIs that
+  // predate environments read them.
   accessToken?: string;
   agent?: AgentConfig;
+  // Every other environment's, keyed by API URL. Read and written whole:
+  // conf takes the dots in a URL for a key path.
+  environments?: Record<string, EnvironmentSlot>;
+  // The API URL `clocktopus env use` chose; production when absent.
+  environment?: string;
   // The version that last ran on this machine, so the first run of another
   // one refreshes what `agent setup` installed (`lib/agent-refresh.ts`).
   lastRunVersion?: string;
@@ -30,58 +39,103 @@ type ConfigSchema = {
 
 const config = new Conf<ConfigSchema>({
   projectName: "clocktopus-cli",
+  // A config of its own, for a throwaway login or a test.
+  cwd: process.env.CLOCKTOPUS_CONFIG_DIR || undefined,
+  // It holds a login and an ingest token per environment.
+  configFileMode: 0o600,
 });
 
 // Set from the `--env` flag.
-let runtimeEnv: Environment | undefined;
+let runtimeApiUrl: string | undefined;
 
-export function setRuntimeEnvironment(env: Environment): void {
-  runtimeEnv = env;
+export function setRuntimeEnvironment(apiUrl: string): void {
+  runtimeApiUrl = apiUrl;
 }
 
-export function getEnvironment(): Environment {
-  if (runtimeEnv) {
-    return runtimeEnv;
-  }
-  return "prod";
-}
-
+// `CLOCKTOPUS_API_URL`, then `--env`, then `clocktopus env use`.
 export function getApiUrl(): string {
-  // `CLOCKTOPUS_API_URL` overrides `--env`.
-  if (process.env.CLOCKTOPUS_API_URL) {
-    return process.env.CLOCKTOPUS_API_URL;
-  }
-
-  const env = getEnvironment();
-  return ENVIRONMENTS[env];
+  // A value that resolves to nothing is used as given, so its requests fail
+  // rather than reach another environment.
+  const fromEnv = process.env.CLOCKTOPUS_API_URL;
+  if (fromEnv) return resolveEnvironment(fromEnv) ?? fromEnv;
+  return runtimeApiUrl ?? getChosenApiUrl();
 }
 
-export function getToken(): string | undefined {
-  return config.get("accessToken");
+// What `clocktopus env use` chose, whatever overrides it for this command.
+export function getChosenApiUrl(): string {
+  return config.get("environment") ?? PRODUCTION_API_URL;
+}
+
+export function setChosenApiUrl(apiUrl: string): void {
+  if (apiUrl === PRODUCTION_API_URL) config.delete("environment");
+  else config.set("environment", apiUrl);
+}
+
+function readSlot(apiUrl: string): EnvironmentSlot {
+  if (apiUrl === PRODUCTION_API_URL) {
+    return {
+      accessToken: config.get("accessToken"),
+      agent: config.get("agent"),
+    };
+  }
+  return config.get("environments")?.[apiUrl] ?? {};
+}
+
+function writeSlot(apiUrl: string, slot: EnvironmentSlot): void {
+  if (apiUrl === PRODUCTION_API_URL) {
+    if (slot.accessToken === undefined) config.delete("accessToken");
+    else config.set("accessToken", slot.accessToken);
+    if (slot.agent === undefined) config.delete("agent");
+    else config.set("agent", slot.agent);
+    return;
+  }
+  const others = Object.fromEntries(
+    Object.entries(config.get("environments") ?? {}).filter(
+      ([url]) => url !== apiUrl,
+    ),
+  );
+  const isEmpty = slot.accessToken === undefined && slot.agent === undefined;
+  config.set("environments", isEmpty ? others : { ...others, [apiUrl]: slot });
+}
+
+// Production, the named environments, then any other this machine has a login
+// or an agent setup for.
+export function knownApiUrls(): string[] {
+  const stored = Object.keys(config.get("environments") ?? {});
+  const named: string[] = Object.values(ENVIRONMENTS);
+  return [...named, ...stored.filter((url) => !named.includes(url))];
+}
+
+export function getToken(apiUrl = getApiUrl()): string | undefined {
+  return readSlot(apiUrl).accessToken;
 }
 
 export function setToken(token: string): void {
-  config.set("accessToken", token);
+  const apiUrl = getApiUrl();
+  writeSlot(apiUrl, { ...readSlot(apiUrl), accessToken: token });
 }
 
 export function clearToken(): void {
-  config.delete("accessToken");
+  const apiUrl = getApiUrl();
+  writeSlot(apiUrl, { ...readSlot(apiUrl), accessToken: undefined });
 }
 
 export function isLoggedIn(): boolean {
   return !!getToken();
 }
 
-export function getAgentConfig(): AgentConfig {
-  return config.get("agent") ?? {};
+export function getAgentConfig(apiUrl = getApiUrl()): AgentConfig {
+  return readSlot(apiUrl).agent ?? {};
 }
 
-export function setAgentConfig(next: AgentConfig): void {
-  config.set("agent", { ...getAgentConfig(), ...next });
+export function setAgentConfig(next: AgentConfig, apiUrl = getApiUrl()): void {
+  const slot = readSlot(apiUrl);
+  writeSlot(apiUrl, { ...slot, agent: { ...slot.agent, ...next } });
 }
 
 export function clearAgentConfig(): void {
-  config.delete("agent");
+  const apiUrl = getApiUrl();
+  writeSlot(apiUrl, { ...readSlot(apiUrl), agent: undefined });
 }
 
 export function getLastRunVersion(): string | undefined {

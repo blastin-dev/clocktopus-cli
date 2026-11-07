@@ -42,7 +42,7 @@ export type Attribution = {
   // The checkout's root, `~` for the home directory; `isWorktree` for a linked worktree.
   checkout: { path: string; isWorktree: boolean } | null
   // The one worktree on the branch of the task the session is tied to, when its own branch
-  // names another task or none, as in a goal run; the panel shows it in place of `checkout`.
+  // names another task or none; the panel shows it in place of `checkout`.
   taskCheckout: {
     branch: string
     checkout: { path: string; isWorktree: boolean }
@@ -87,11 +87,27 @@ export type View = {
   updatedAt: number
 }
 
+// `clocktopus env --json`'s answer, and the API this session's plugin reads.
+export type Environment = {
+  // `prod`, `staging`, `dev`, or the API URL's host.
+  name: string
+  apiUrl: string
+  isProduction: boolean
+  cli: { version: string; isCheckout: boolean; path: string | null }
+  // From the plugin's `.mcp.json` as the session's start read it; differs from `apiUrl` until
+  // Claude Code restarts after `clocktopus env use`. Null without one.
+  sessionApiUrl: string | null
+}
+
 declare module 'claude-code' {
   interface PluginState {
     clocktopus: {
+      environment: Shaped<Environment | null>
       view: Shaped<View | null>
       isBandShown: boolean
+      // The plugin's `.mcp.json` as the session's start read it; "" when it had none, null until
+      // the session's start has read it.
+      sessionMcp: string | null
       // Whether the pane was opened unasked once this session, so closing it keeps it closed.
       wasPaneOffered: boolean
     }

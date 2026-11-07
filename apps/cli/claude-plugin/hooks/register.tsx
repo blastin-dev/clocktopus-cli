@@ -9,10 +9,16 @@ import {
   clock,
   colorOf,
   duration,
+  environmentBanner,
+  environmentOf,
+  environmentTag,
+  herdrLabelArgs,
   hidden,
+  isRealtimeHint,
   isRecord,
   isRefreshingCall,
   messageOf,
+  realtimeWatchPaths,
   sessionRows,
   sshHostOf,
   stageOf,
@@ -25,6 +31,11 @@ import {
   withoutCredentials,
   withSshConfig,
 } from "./panel";
+import {
+  strayWorktreeNote,
+  strayWorktreeOf,
+  workedInOf,
+} from "./stray-worktree";
 
 const PANE = "clocktopus-goal";
 const PANE_TITLE = "Clocktopus";
@@ -42,6 +53,20 @@ const CONNECTING = "connecting…";
 const view = atom({ plugin: "clocktopus", key: "view" } as const, null, {
   shape: "view-6",
 });
+const environment = atom(
+  { plugin: "clocktopus", key: "environment" } as const,
+  null,
+  { shape: "environment-1" },
+);
+// The plugin's `.mcp.json` as this session's start found it. Claude Code connects to its MCP
+// server then, and `clocktopus env use` rewrites the file in place afterwards.
+const sessionMcp = atom(
+  { plugin: "clocktopus", key: "sessionMcp" } as const,
+  null,
+);
+
+const readMcpConfig = ($: EngineInterface) =>
+  $.fs.read(`${$.plugin.root}/.mcp.json`).catch(() => "");
 const isBandShown = atom(
   { plugin: "clocktopus", key: "isBandShown" } as const,
   false,
@@ -102,18 +127,19 @@ async function canonicalRemote($: EngineInterface, remote: string) {
   return withSshConfig(remote, sshConfigs.get(host) ?? "");
 }
 
+const REV_PARSE = [
+  "git",
+  "rev-parse",
+  "--path-format=absolute",
+  "--show-toplevel",
+  "--git-dir",
+  "--git-common-dir",
+];
+
 async function currentCheckout($: EngineInterface) {
-  const { exitCode, stdout } = await $.process.run(
-    [
-      "git",
-      "rev-parse",
-      "--path-format=absolute",
-      "--show-toplevel",
-      "--git-dir",
-      "--git-common-dir",
-    ],
-    { timeoutMs: 2000 },
-  );
+  const { exitCode, stdout } = await $.process.run(REV_PARSE, {
+    timeoutMs: 2000,
+  });
   if (exitCode !== 0) return null;
   return checkoutOf(stdout, await $.env.get("HOME"));
 }
@@ -147,6 +173,19 @@ async function localVersions($: EngineInterface): Promise<LocalVersions> {
       .catch(() => null),
   ]);
   return { installed, plugin };
+}
+
+// Which server the CLI talks to and which build it is, beside the server this session's
+// plugin reads; a CLI without `env` leaves it null.
+async function readEnvironment($: EngineInterface) {
+  const [env, mcp] = await Promise.all([
+    $.process
+      .run(["clocktopus", "env", "--json"], { timeoutMs: 5000 })
+      .then(({ exitCode, stdout }) => (exitCode === 0 ? stdout : ""))
+      .catch(() => ""),
+    read($, sessionMcp).then((loaded) => loaded ?? readMcpConfig($)),
+  ]);
+  return environmentOf(env, mcp || null, MCP_SERVER);
 }
 
 async function load(
@@ -203,6 +242,19 @@ async function worktreeList($: EngineInterface) {
   return exitCode === 0 ? stdout : null;
 }
 
+async function strayWorktree($: EngineInterface, workedIn: string) {
+  const [session, worked] = await Promise.all([
+    $.process.run(REV_PARSE, { timeoutMs: 2000 }),
+    $.process.run(REV_PARSE, { cwd: workedIn, timeoutMs: 2000 }),
+  ]);
+  return session.exitCode === 0 && worked.exitCode === 0
+    ? strayWorktreeOf(session.stdout, worked.stdout)
+    : null;
+}
+
+// The worktrees the model has been told to move into, so each is named once a session.
+const notedWorktrees = new Set<string>();
+
 // Set once this module has asked to open the pane; `wasPaneOffered` outlives a reload.
 let isPaneOffered = false;
 
@@ -240,6 +292,9 @@ let unreportedRechecks = 0;
 
 async function refreshOnce($: EngineInterface) {
   const updatedAt = await $.clock.now();
+  const environmentRead = readEnvironment($).then((next) =>
+    update($, environment, () => next),
+  );
   let next: View;
   try {
     next = { ...(await load($)), error: null, updatedAt };
@@ -273,6 +328,28 @@ async function refreshOnce($: EngineInterface) {
     }
   }
   await update($, view, () => next);
+  await environmentRead.catch(() => undefined);
+  if (next.error === null)
+    await labelHerdrTerminal($, next).catch(() => undefined);
+}
+
+// The labels last put on this session's Herdr terminal, so an unchanged refresh runs no `hc`.
+let herdrLabels: string | null = null;
+
+// Outside a Herdr terminal it does nothing, and a failure only means the next refresh tries
+// again.
+async function labelHerdrTerminal($: EngineInterface, next: View) {
+  const tie = next.attribution;
+  const terminal = await $.env.get("HC_TERMINAL_ID");
+  if (!terminal || !tie) return;
+  // Only a tie Clocktopus made: a branch alone doesn't put its task on the panel.
+  const args = herdrLabelArgs(terminal, tie.sessionId, tie.currentKey ?? null);
+  const labels = args.join(" ");
+  if (labels === herdrLabels) return;
+  const { exitCode } = await $.process.run(["hc", ...args], {
+    timeoutMs: 2000,
+  });
+  if (exitCode === 0) herdrLabels = labels;
 }
 
 // One refresh at a time; a request made meanwhile runs one more after it.
@@ -292,12 +369,24 @@ function refresh($: EngineInterface): Promise<void> {
   return running;
 }
 
+// Starts this machine's `clocktopus realtime watch` when none runs, and renews
+// its lease, so a change hint refreshes the panel at once; the periodic refresh
+// stays as the fallback. Without the CLI, or signed out, it does nothing.
+const startRealtimeWatcher = ($: EngineInterface) =>
+  $.process
+    .run(["clocktopus", "realtime", "watch", "--detach"], { timeoutMs: 5000 })
+    .then(() => undefined)
+    .catch(() => undefined);
+
 // A refresh nothing waits on; its failure is already in the view.
 const refreshLater = ($: EngineInterface) => void refresh($).catch(() => {});
 
 export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
     const started = await next(e);
+    notedWorktrees.clear();
+    const mcp = await readMcpConfig($);
+    await update($, sessionMcp, () => mcp);
     await $.command.register({
       name: "clocktopus-panel",
       description:
@@ -305,7 +394,10 @@ export const register: Register = (on) => {
       argumentHint: "[refresh|band]",
       immediate: true,
     });
-    $.clock.every(REFRESH_MS, () => refreshLater($));
+    $.clock.every(REFRESH_MS, () => {
+      refreshLater($);
+      void startRealtimeWatcher($);
+    });
     refreshLater($);
 
     return started;
@@ -314,15 +406,27 @@ export const register: Register = (on) => {
   // Only SessionStart can name files for the engine to watch; it raises FileChanged for them.
   on("classic.SessionStart", async ($, e, next) => {
     const result = await next(e);
-    const head = await gitHead($).catch(() => undefined);
-    return head
-      ? { ...result, watchPaths: [...(result.watchPaths ?? []), head] }
-      : result;
+    const [head, home] = await Promise.all([
+      gitHead($).catch(() => undefined),
+      $.env.get("HOME"),
+      startRealtimeWatcher($),
+    ]);
+    const watchPaths = [
+      ...(result.watchPaths ?? []),
+      ...(head ? [head] : []),
+      ...(home ? realtimeWatchPaths(home) : []),
+    ];
+    return { ...result, watchPaths };
   });
 
   on("classic.FileChanged", async ($, e, next) => {
     const result = await next(e);
-    if (/(^|\/)HEAD$/.test(e.file_path)) refreshLater($);
+    const home = await $.env.get("HOME");
+    if (
+      /(^|\/)HEAD$/.test(e.file_path) ||
+      (home && isRealtimeHint(e.file_path, home))
+    )
+      refreshLater($);
     return result;
   });
 
@@ -364,12 +468,23 @@ export const register: Register = (on) => {
 
   on("tool.call", async ($, e, next) => {
     const result = await next(e);
-    if (result.deny !== undefined || result.isError) return result;
+    if (result.deny !== undefined) return result;
     const input: Record<string, unknown> = { ...e };
     // The call already ran: the model doesn't wait on the refresh.
-    if (isRefreshingCall(e.tool, text(input.command))) refreshLater($);
+    if (!result.isError && isRefreshingCall(e.tool, text(input.command)))
+      refreshLater($);
 
-    return result;
+    // A failed call still worked where it names, as `cd <worktree> && pnpm test` with a failing
+    // test does. A subagent's calls run in its own folder, which `$.process.run` doesn't start in.
+    const workedIn = e.agentId ? null : workedInOf(e.tool, input);
+    if (!workedIn) return result;
+    const stray = await strayWorktree($, workedIn).catch(() => null);
+    if (!stray || notedWorktrees.has(stray.root)) return result;
+    notedWorktrees.add(stray.root);
+    return {
+      ...result,
+      context: [...(result.context ?? []), strayWorktreeNote(stray)],
+    };
   });
 
   // The footer's mode labels, not `$.ui.status`: the terminal draws a plugin's status as a warning.
@@ -385,10 +500,13 @@ export const register: Register = (on) => {
       isPaneOffered = true;
       $.clock.after(0, () => void offerPane($));
     }
-    const line = statusLine(current);
+    const labels = [
+      environmentTag(await read($, environment)),
+      statusLine(current),
+    ].filter((label) => label !== null && label !== undefined);
     return next(
-      line
-        ? { ...e, props: { ...e.props, modes: [...e.props.modes, line] } }
+      labels.length > 0
+        ? { ...e, props: { ...e.props, modes: [...e.props.modes, ...labels] } }
         : e,
     );
   });
@@ -467,6 +585,7 @@ export const register: Register = (on) => {
       ...rows.map((row) => row.key.length),
     );
     const isTaskListed = rows.some((row) => row.key === task?.key);
+    const banner = environmentBanner(await read($, environment));
     const footer = current
       ? `updated ${clock(current.updatedAt)}${current.error ? ` · last refresh failed: ${current.error}` : ""}`
       : "loading…";
@@ -508,6 +627,20 @@ export const register: Register = (on) => {
 
     return (
       <Box flexDirection="column" width={e.props.bodyColumns}>
+        {banner && (
+          <Box flexDirection="column" marginBottom={1}>
+            {banner.map((line, index) => (
+              <Text
+                key={line}
+                color="warning"
+                bold={index === 0}
+                wrap="truncate-end"
+              >
+                {line}
+              </Text>
+            ))}
+          </Box>
+        )}
         {!task && (
           <Text dimColor>{current?.error ?? current?.note ?? "Loading…"}</Text>
         )}

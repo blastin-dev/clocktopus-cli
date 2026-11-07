@@ -19,6 +19,10 @@ import {
   parseReflogCommits,
 } from "../../lib/declared-commits.js";
 import { getRepositoryRemotes } from "../../lib/git.js";
+import {
+  herdrLabelArgs,
+  labelHerdrTerminal,
+} from "../../lib/herdr-terminal.js";
 import { homeRelativePath } from "../../lib/home-relative-path.js";
 import { readHookPayload } from "../../lib/hook-payload.js";
 import {
@@ -386,6 +390,23 @@ async function run(
       error: result.error,
       repository: body.repository_url ?? null,
     });
+  }
+
+  if (dryRun) {
+    const terminal = process.env.HC_TERMINAL_ID;
+    const labelArgs = terminal
+      ? herdrLabelArgs({ terminal, eventName, sessionId })
+      : null;
+    noteHookDryRun(
+      dryRun,
+      !terminal
+        ? "not in a Herdr terminal, so no terminal label"
+        : labelArgs
+          ? `would run: hc ${labelArgs.join(" ")}`
+          : `${eventName} puts no label on the Herdr terminal`,
+    );
+  } else {
+    await labelHerdrTerminal({ eventName, sessionId });
   }
 
   // After this session's own event, so the sweep's requests cannot delay it.

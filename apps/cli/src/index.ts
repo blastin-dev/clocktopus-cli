@@ -1,9 +1,11 @@
 import { createRequire } from "node:module";
-import { Command } from "commander";
+import { TODO_LIMIT_DEFAULT } from "@repo/cli-contract/task-board";
+import { Command, Option } from "commander";
 import { z } from "zod";
 
 import type { InitOptions } from "./commands/init/types.js";
-import type { Environment } from "./lib/config.js";
+import type { RealtimeWatchOptions } from "./commands/realtime.js";
+import type { TasksOptions } from "./commands/tasks.js";
 import { contextCommand } from "./commands/agent/context.js";
 import { disableCommand } from "./commands/agent/disable.js";
 import { doctorCommand } from "./commands/agent/doctor.js";
@@ -16,13 +18,17 @@ import {
   clockOutCommand,
   clockStatusCommand,
 } from "./commands/clock.js";
+import { envCommand, envUseCommand } from "./commands/env.js";
 import { initCommand } from "./commands/init/index.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
+import { realtimeWatchCommand } from "./commands/realtime.js";
+import { tasksCommand } from "./commands/tasks.js";
 import { upgradeCommand } from "./commands/upgrade.js";
 import { whoamiCommand } from "./commands/whoami.js";
 import { refreshIfUpgraded } from "./lib/agent-refresh.js";
-import { ENVIRONMENTS, setRuntimeEnvironment } from "./lib/config.js";
+import { getChosenApiUrl, setRuntimeEnvironment } from "./lib/config.js";
+import { ENVIRONMENTS, resolveEnvironment } from "./lib/environment.js";
 
 const require = createRequire(import.meta.url);
 const parsedJson = z
@@ -40,8 +46,15 @@ const REFRESHES_ITSELF = new Set([
   "agent refresh",
   "agent hook",
   "agent context",
+  "env use",
+  "realtime watch",
   "upgrade",
 ]);
+
+// Commands that point the whole machine somewhere: the agents, the Claude
+// plugin, or the one realtime watcher the panels share. `--env` is for one
+// command, so they refuse one that isn't the environment `env use` chose.
+const MOVES_THE_MACHINE = new Set(["init", "agent setup", "realtime watch"]);
 
 /** Lets `--agent` be repeated as well as comma-separated. */
 function collect(value: string, previous: string[] = []): string[] {
@@ -54,24 +67,38 @@ program
   .name("clocktopus")
   .description("CLI for Clocktopus time tracking")
   .version(version)
-  .option("-e, --env <environment>", "Use environment (dev, staging or prod)")
+  // `--env` and `env` are for testing against staging or a local server, so
+  // `--help` leaves them out (see Environment Configuration in CONTRIBUTING.md).
+  .addOption(
+    new Option(
+      "-e, --env <environment>",
+      "Use this environment for this command only (dev, staging, prod or a URL); 'env use' switches it",
+    ).hideHelp(),
+  )
   .hook("preAction", (thisCommand, actionCommand) => {
     const opts = thisCommand.opts();
-    if (opts.env) {
-      if (!(opts.env in ENVIRONMENTS)) {
-        console.error(
-          `Invalid environment: ${opts.env}. Use 'dev', 'staging' or 'prod'.`,
-        );
-        process.exit(1);
-      }
-      setRuntimeEnvironment(opts.env as Environment);
-    }
     const name = [
       actionCommand.parent?.parent ? actionCommand.parent.name() : null,
       actionCommand.name(),
     ]
       .filter(Boolean)
       .join(" ");
+    if (opts.env) {
+      const apiUrl = resolveEnvironment(String(opts.env));
+      if (!apiUrl) {
+        console.error(
+          `Invalid environment: ${opts.env}. Use ${Object.keys(ENVIRONMENTS).join(", ")} or an http(s) URL.`,
+        );
+        process.exit(1);
+      }
+      if (MOVES_THE_MACHINE.has(name) && apiUrl !== getChosenApiUrl()) {
+        console.error(
+          `'${name}' changes the whole machine, and --env is for one command. Run 'clocktopus env use ${opts.env}' first.`,
+        );
+        process.exit(1);
+      }
+      setRuntimeEnvironment(apiUrl);
+    }
     if (
       !REFRESHES_ITSELF.has(name) &&
       refreshIfUpgraded(opts.env) &&
@@ -164,6 +191,57 @@ program
   .command("whoami")
   .description("Display the currently logged in user")
   .action(whoamiCommand);
+
+program
+  .command("tasks")
+  .description(
+    "Show the open tasks of this checkout's Clocktopus project: to do, in progress and in review, with the agents working on them",
+  )
+  .option("--json", "Print the board as JSON")
+  .option(
+    "--repository <url>",
+    "The repository's remote URL (default: this checkout's origin)",
+  )
+  .option("--org <id>", "The organisation, when several link the repository")
+  .option(
+    "--limit <n>",
+    `How many to do tasks to list (default: ${TODO_LIMIT_DEFAULT})`,
+  )
+  .action((options: TasksOptions) => tasksCommand(options));
+
+const env = program
+  .command("env", { hidden: true })
+  .description(
+    "Show which Clocktopus environment this machine uses, and the CLI build",
+  )
+  .option("--json", "Print it as JSON")
+  .action((options: { json?: boolean }) => envCommand(options));
+
+env
+  .command("use")
+  .argument(
+    "[environment]",
+    "dev, staging, prod or a URL; left out, the current one",
+  )
+  .description(
+    "Switch this machine to an environment: the login, agent telemetry and hooks, MCP servers, the Claude plugin, the realtime watcher and the panels, all run by this CLI",
+  )
+  .action((environment: string | undefined) => envUseCommand(environment));
+
+const realtime = program
+  .command("realtime")
+  .description("Follow Clocktopus's change hints on this machine");
+
+realtime
+  .command("watch")
+  .description(
+    "Hold one realtime connection for this machine and touch a file per topic under ~/.clocktopus/realtime on each change",
+  )
+  .option(
+    "--detach",
+    "Renew the lease and start a watcher in the background when none runs, then return",
+  )
+  .action((options: RealtimeWatchOptions) => realtimeWatchCommand(options));
 
 const clock = program
   .command("clock")

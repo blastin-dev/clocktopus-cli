@@ -1,4 +1,4 @@
-import type { Attribution, Cli, Goal, Task, View } from "../types";
+import type { Attribution, Cli, Environment, Goal, Task, View } from "../types";
 
 // The web app's `STAGE_LABEL`, lowercased.
 export const STAGE_LABEL: Record<string, string> = {
@@ -324,14 +324,62 @@ export function cliRows(cli: Cli): Row[] {
 }
 
 // `stdout` is `git rev-parse --path-format=absolute --show-toplevel --git-dir --git-common-dir`'s.
-export function checkoutOf(stdout: string, home: string | undefined) {
+export function revParseOf(stdout: string) {
   const [root, gitDir, commonDir] = stdout.trim().split("\n");
-  if (!root) return null;
+  if (!root || !gitDir || !commonDir) return null;
   // A linked worktree's git dir is `<common dir>/worktrees/<name>`; the main checkout's is the common dir.
-  return {
-    path: homeRelative(root, home),
-    isWorktree: Boolean(gitDir && commonDir && gitDir !== commonDir),
-  };
+  return { root, gitDir, commonDir, isWorktree: gitDir !== commonDir };
+}
+
+export function checkoutOf(stdout: string, home: string | undefined) {
+  const checkout = revParseOf(stdout);
+  return checkout
+    ? {
+        path: homeRelative(checkout.root, home),
+        isWorktree: checkout.isWorktree,
+      }
+    : null;
+}
+
+// The files `clocktopus realtime watch` touches on each change hint that can
+// change this panel, under `~/.clocktopus/realtime`
+// (`src/lib/realtime-watch.ts`, whose `BOARD_TOPICS` and `realtimeDir` these
+// repeat because a hooks module can't import the CLI; `realtime-watch.test.ts`
+// holds them the same).
+export const REALTIME_TOPICS = [
+  "tasks",
+  "pull-requests",
+  "agent-sessions",
+  "time-entries",
+];
+
+export const realtimeDirOf = (home: string) => `${home}/.clocktopus/realtime`;
+
+export const realtimeWatchPaths = (home: string) =>
+  REALTIME_TOPICS.map((topic) => `${realtimeDirOf(home)}/${topic}`);
+
+export const isRealtimeHint = (path: string, home: string) =>
+  realtimeWatchPaths(home).includes(path);
+
+// The `hc` arguments that label this session's Herdr terminal (`HC_TERMINAL_ID`) with the
+// session and the task it counts toward now, so Herdr's Clocktopus panel
+// (`apps/cli/herdr/mods/clocktopus/model.js`) places it there the moment a tie changes. The
+// label names are `apps/cli/src/lib/herdr-terminal.ts`'s, which a hooks module can't import;
+// `herdr-mod.test.ts` holds the three to the same names.
+export const HERDR_SESSION_LABEL = "clocktopus.session";
+export const HERDR_TASK_LABEL = "clocktopus.task";
+
+export function herdrLabelArgs(
+  terminal: string,
+  sessionId: string,
+  taskKey: string | null,
+) {
+  return [
+    "label",
+    terminal,
+    `${HERDR_SESSION_LABEL}=${sessionId}`,
+    `${HERDR_TASK_LABEL}=${taskKey ?? ""}`,
+  ];
 }
 
 // The task key a branch names, as `extractTaskKeyFromBranch`
@@ -473,4 +521,87 @@ export function withSshConfig(remote: string, config: string) {
     return `${prefix}${hostname}:${path.slice(1)}`;
   }
   return `${prefix}${hostname}:${parts.scp?.[3] ?? ""}`;
+}
+
+// `env` is `clocktopus env --json`'s stdout, `mcp` the plugin's `.mcp.json` as the session's start
+// read it (null when it had none). Null when the CLI answered nothing it knows, as a CLI without
+// `env` does.
+export function environmentOf(
+  env: string,
+  mcp: string | null,
+  server = "clocktopus",
+): Environment | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(env);
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed) || !isRecord(parsed.cli)) return null;
+  const name = text(parsed.name);
+  const apiUrl = text(parsed.apiUrl);
+  const version = text(parsed.cli.version);
+  if (!name || !apiUrl || !version) return null;
+  return {
+    name,
+    apiUrl,
+    isProduction: parsed.isProduction === true,
+    cli: {
+      version,
+      isCheckout: parsed.cli.isCheckout === true,
+      path: text(parsed.cli.path),
+    },
+    sessionApiUrl: mcpApiUrl(mcp, server),
+  };
+}
+
+function mcpApiUrl(mcp: string | null, server: string) {
+  if (!mcp) return null;
+  try {
+    const parsed: unknown = JSON.parse(mcp);
+    const servers = isRecord(parsed) ? parsed.mcpServers : null;
+    const entry = isRecord(servers) ? servers[server] : null;
+    const url = isRecord(entry) ? text(entry.url) : null;
+    return url ? url.replace(/\/api\/mcp\/?$/, "") : null;
+  } catch {
+    return null;
+  }
+}
+
+const hostOf = (url: string) => /^[a-z]+:\/\/([^/?#]+)/i.exec(url)?.[1] ?? url;
+
+// The banner's lines, the first its title; null on a production release reading production.
+export function environmentBanner(environment: Environment | null) {
+  if (!environment) return null;
+  const isStale =
+    environment.sessionApiUrl !== null &&
+    environment.sessionApiUrl !== environment.apiUrl;
+  if (environment.isProduction && !environment.cli.isCheckout && !isStale)
+    return null;
+  const where = environment.isProduction
+    ? "Production"
+    : environment.name.toUpperCase();
+  return [
+    `▲ ${where} · ${hostOf(environment.apiUrl)}`,
+    ...(environment.cli.isCheckout
+      ? [
+          `CLI ${environment.cli.version} · checkout ${environment.cli.path ?? ""}`.trimEnd(),
+        ]
+      : []),
+    ...(isStale && environment.sessionApiUrl
+      ? [
+          `This session reads ${hostOf(environment.sessionApiUrl)}; restart Claude Code`,
+        ]
+      : []),
+  ];
+}
+
+// The footer's short form: the environment off production, else `CLI checkout` for a checkout
+// build, else `restart Claude Code` while this session reads the environment switched from.
+export function environmentTag(environment: Environment | null) {
+  if (!environment || !environmentBanner(environment)) return null;
+  if (!environment.isProduction) return `▲ ${environment.name.toUpperCase()}`;
+  return environment.cli.isCheckout
+    ? "▲ CLI checkout"
+    : "▲ restart Claude Code";
 }

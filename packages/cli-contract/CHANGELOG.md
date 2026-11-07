@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.13.0](https://github.com/blastin-dev/clocktopus/compare/cli-contract-v0.12.0...cli-contract-v0.13.0) (2026-11-07)
+
+
+### Features
+
+* **clk-103:** add `clocktopus tasks` and the task board route it reads ([e8a8770](https://github.com/blastin-dev/clocktopus/commit/e8a8770caa4f0cda26246802b8e6682aac37aae9))
+* **clk-103:** CLI task board and realtime change hints for the panels ([494b983](https://github.com/blastin-dev/clocktopus/commit/494b9833e4cda2421fd882c80cd7ed8885a7f915))
+* **clk-103:** follow Clocktopus's change hints from the CLI and the Claude panel ([4d54a8e](https://github.com/blastin-dev/clocktopus/commit/4d54a8e0fc9f23554f96b76484eb65d9a2eccad5))
+
+
+### Bug Fixes
+
+* **clk-103:** keep one realtime watcher per machine and stop retrying a stage without realtime ([7f186b6](https://github.com/blastin-dev/clocktopus/commit/7f186b6c022ca8b979e3afcac568339ab9b55262))
+
 ## [0.12.0](https://github.com/blastin-dev/clocktopus/compare/cli-contract-v0.11.0...cli-contract-v0.12.0) (2026-11-04)
 
 

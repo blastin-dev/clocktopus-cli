@@ -158,6 +158,52 @@ Clear stored credentials.
 
 Display the current authenticated user.
 
+### `clocktopus tasks`
+
+```
+clocktopus tasks [--json] [--repository <url>] [--org <id>] [--limit <n>]
+```
+
+The open tasks of the Clocktopus project this checkout's `origin` belongs to,
+grouped as To do, In progress and In review, with the agents working on each
+now. To do lists the project's active goals' tasks in goal order, then the
+newest, up to `--limit` (30 by default). In progress leaves out a task
+nothing has touched for 30 days, unless an agent is working on it.
+
+`--json` prints one JSON object whatever happens, for programs that show the
+board: the board as `GET /api/agent/task-board`
+returns it (`TaskBoardSchema` in `@repo/cli-contract/task-board`), with your
+own agent sessions on each task and where they ran, and the project's active
+goals with their tasks' keys, or a `status` of
+`signed_out`, `not_a_repository` or `error`. It exits with `1` on any of
+those. Every object carries `environment`: the server the CLI talks to and
+the build that answered.
+
+### `clocktopus realtime watch`
+
+```
+clocktopus realtime watch [--detach]
+```
+
+Follows Clocktopus's change hints on this machine, so panels move when the
+work does instead of on their next poll. It holds one realtime connection,
+with a token from `GET /api/realtime/connection` that it renews on every
+reconnect, subscribed to your channel and each of your organisations'. On
+each hint it rewrites a file named after the topic under
+`~/.clocktopus/realtime`: `tasks`, `pull-requests`, `agent-sessions` or
+`time-entries`, the topics a task board shows (a commit that starts a task
+arrives only as `time-entries`). It rewrites all of them after a reconnect,
+since hints sent while it was down are lost. `status` there says whether it is
+`connected`, `offline`, `disabled` (the server has no realtime) or `stopped`.
+
+One runs per machine: a second exits at once. `--detach` is what clients run:
+it renews the `lease` file, creates the topic files, and starts a watcher in
+the background when none runs, then prints `{ pid, started, dir }`. For an
+hour after a watcher found the server `disabled`, it starts none. The
+watcher stops once no client has renewed the lease for 15 minutes. The Claude
+Code plugin runs it at session start and every two minutes, and refreshes its
+panel when a topic's file changes. It needs Node 22 or newer.
+
 ### `clocktopus clock (in|out)`
 
 ```
@@ -330,12 +376,16 @@ one before (with `gh stack` on GitHub), while the session stays free to talk
 to you.
 
 The `review-work` skill, which `start-work` runs once the pull request is
-open, has a subagent review the branch's diff against its task in the
-background, through the agent's own code-review skill when it has one. The
-session then fixes only the findings it is highly confident in, re-runs the
-checks and pushes, and leaves everything else as inline comments on the pull
-request, each on the line to fix with a recommended fix, for you to decide.
-It never approves, blocks or merges.
+open, has a first reviewer read the branch's diff against its task in the
+background, through the agent's own code-review skill when it has one: the
+latest GPT Sol at high effort, or the latest Claude Sonnet when the agent
+can't run Sol. The session fixes the findings it can confirm, and a second
+model, the latest Claude Fable at medium effort, settles the findings still
+open and checks the fixes, over a few rounds. Both reviewers are subagents of
+the agent you run, on the account it already uses. Only what needs a person,
+or stays open once the rounds run out, is left as inline comments on the pull
+request, each on the line to fix with a recommended fix. It never approves,
+blocks or merges.
 
 The `refine` skill (`/clocktopus:refine BLA-12` or `/clocktopus:refine G-3` in
 Claude Code) is the extra pass for when you aren't sure a task covers
@@ -720,15 +770,12 @@ you sign in to, not with the ingest token.
 
 Credentials are stored in a platform-specific config directory:
 
-- **macOS**: `~/Library/Preferences/clocktopus-cli-nodejs/conf
-ig.json`
+- **macOS**: `~/Library/Preferences/clocktopus-cli-nodejs/config.json`
 - **Linux**: `~/.config/clocktopus-cli-nodejs/config.json`
 - **Windows**: `%APPDATA%/clocktopus-cli-nodejs/config.json`
 
-Run `clocktopus logout` to clear stored credentials.
+The file is readable by you alone. It holds your login, and the ingest token
+`agent setup` last installed, with its id (needed to revoke) and its display
+prefix.
 
-The agent telemetry setup deliberately keeps **no** copy of the ingest token
-here. It has to live in each agent's own config for that agent's exporter to
-read it, and a second copy would be another thing to leak and another thing
-to fall out of date. Only the token id (needed to revoke) and its display
-prefix are kept.
+Run `clocktopus logout` to clear your login.

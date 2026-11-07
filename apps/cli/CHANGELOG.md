@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.13.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.12.0...cli-v0.13.0) (2026-11-07)
+
+
+### Features
+
+* **clk-102:** add a Herdr layout with a Clocktopus task panel beside the agents ([87eaf4f](https://github.com/blastin-dev/clocktopus/commit/87eaf4f65c2488e852bdaa22f51e22351d315fed))
+* **clk-102:** Herdr layout with a Clocktopus task panel ([3c448f2](https://github.com/blastin-dev/clocktopus/commit/3c448f288b1afc07517553761444af9956af7098))
+* **clk-102:** label each Herdr terminal with its agent session and current task ([0bfbe6c](https://github.com/blastin-dev/clocktopus/commit/0bfbe6c9094ae6303b0fc08db21bc4342167b9e6))
+* **clk-102:** refresh the Herdr panel on Clocktopus's change hints ([01af574](https://github.com/blastin-dev/clocktopus/commit/01af57421b938397f8f46742f7b5b704ce46323b))
+* **clk-103:** add `clocktopus tasks` and the task board route it reads ([e8a8770](https://github.com/blastin-dev/clocktopus/commit/e8a8770caa4f0cda26246802b8e6682aac37aae9))
+* **clk-103:** CLI task board and realtime change hints for the panels ([494b983](https://github.com/blastin-dev/clocktopus/commit/494b9833e4cda2421fd882c80cd7ed8885a7f915))
+* **clk-103:** follow Clocktopus's change hints from the CLI and the Claude panel ([4d54a8e](https://github.com/blastin-dev/clocktopus/commit/4d54a8e0fc9f23554f96b76484eb65d9a2eccad5))
+* **clk-106:** move the session into the worktree it works in ([20c0090](https://github.com/blastin-dev/clocktopus/commit/20c009037ee2dd9a5f63c9d78cb0d5c8876ff4fd))
+* **clk-106:** move the session into the worktree it works in ([47ff85a](https://github.com/blastin-dev/clocktopus/commit/47ff85acb9f7dc41dadfcf6d55c8dad7d8aa22a5))
+* **clk-111:** cross-check review-work findings with a second model ([2ee0819](https://github.com/blastin-dev/clocktopus/commit/2ee0819da54d1fad6d53184917c4f58824c2926d))
+* **clk-111:** cross-check review-work findings with a second model ([18718d5](https://github.com/blastin-dev/clocktopus/commit/18718d550faa8468fa10d7ebafe1acf6345b691e))
+
+
+### Bug Fixes
+
+* **clk-102:** keep a change hint that lands mid-load and label Herdr terminals only with a task Clocktopus tied ([55a0cb6](https://github.com/blastin-dev/clocktopus/commit/55a0cb6546a62676337e1b5b9fadeb7ed1f57aa5))
+* **clk-102:** list a Herdr task's agents and sessions together in its open card, with cooking in amber ([e7928e2](https://github.com/blastin-dev/clocktopus/commit/e7928e22b7c64d783256c2be8a98cc1ddbce70c7))
+* **clk-102:** make the Herdr panel's open task card compact, with one Open in Clocktopus ([5c72b58](https://github.com/blastin-dev/clocktopus/commit/5c72b58b2153bfac9542045e7189d5fdae845587))
+* **clk-102:** read the task board's sessions for open tasks only, across the repository's projects, and keep every task in review ([647eb01](https://github.com/blastin-dev/clocktopus/commit/647eb01dc221b33dcdead421d163e0146f3b2e4f))
+* **clk-103:** keep a realtime watcher started from a Herdr mod running after its exec returns ([586cebe](https://github.com/blastin-dev/clocktopus/commit/586cebea9182ec4f547b01d444625afa2ec80047))
+* **clk-103:** keep one realtime watcher per machine and stop retrying a stage without realtime ([7f186b6](https://github.com/blastin-dev/clocktopus/commit/7f186b6c022ca8b979e3afcac568339ab9b55262))
+* **clk-106:** point a session already in a worktree at ExitWorktree, and note a failed cd ([b9e4ba9](https://github.com/blastin-dev/clocktopus/commit/b9e4ba95a86b49a0e3970b76e0361c95e2ad25fe))
+* **clk-111:** push on every path, keep disputed answers open, and list unchecked fixes ([e3a715f](https://github.com/blastin-dev/clocktopus/commit/e3a715ff92d2ec7a917101d4758497db1fa8008f))
+* **clk-111:** reach both reviewers as harness subagents and close the loop's gaps ([bed03e8](https://github.com/blastin-dev/clocktopus/commit/bed03e8c60f0e0429ec1c1734f8d4d00eddcd78c))
+
 ## [0.12.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.11.0...cli-v0.12.0) (2026-11-04)
 
 

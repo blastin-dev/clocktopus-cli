@@ -13,6 +13,9 @@ import {
   cliRows,
   colorOf,
   duration,
+  environmentBanner,
+  environmentOf,
+  environmentTag,
   isRefreshingCall,
   messageOf,
   sessionRows,
@@ -656,5 +659,100 @@ describe("isRefreshingCall", () => {
     expect(isRefreshingCall("Bash", "git status")).toBe(false);
     expect(isRefreshingCall("EnterWorktree", null)).toBe(true);
     expect(isRefreshingCall("Read", "git checkout main")).toBe(false);
+  });
+});
+
+describe("environmentOf", () => {
+  const env = (over: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      name: "staging",
+      apiUrl: "https://staging.clocktopus.app",
+      isProduction: false,
+      cli: {
+        version: "0.13.0",
+        installMethod: "checkout",
+        isCheckout: true,
+        path: "~/Projects/clocktopus/apps/cli",
+      },
+      ...over,
+    });
+  const mcp = (url: string) =>
+    JSON.stringify({ mcpServers: { clocktopus: { type: "http", url } } });
+
+  it("reads the CLI's environment and the API this session's MCP server reads", () => {
+    expect(environmentOf(env(), mcp("https://clocktopus.app/api/mcp"))).toEqual(
+      {
+        name: "staging",
+        apiUrl: "https://staging.clocktopus.app",
+        isProduction: false,
+        cli: {
+          version: "0.13.0",
+          isCheckout: true,
+          path: "~/Projects/clocktopus/apps/cli",
+        },
+        sessionApiUrl: "https://clocktopus.app",
+      },
+    );
+  });
+
+  it("is null for a CLI without `env`", () => {
+    expect(environmentOf("", null)).toBeNull();
+    expect(environmentOf("error: unknown command 'env'", null)).toBeNull();
+  });
+});
+
+describe("environmentBanner", () => {
+  const production = {
+    name: "prod",
+    apiUrl: "https://clocktopus.app",
+    isProduction: true,
+    cli: { version: "0.13.0", isCheckout: false, path: null },
+    sessionApiUrl: "https://clocktopus.app",
+  };
+
+  it("shows nothing for a production release reading production", () => {
+    expect(environmentBanner(production)).toBeNull();
+    expect(environmentTag(production)).toBeNull();
+    expect(environmentBanner(null)).toBeNull();
+  });
+
+  it("names the environment off production", () => {
+    const staging = {
+      ...production,
+      name: "staging",
+      apiUrl: "https://staging.clocktopus.app",
+      isProduction: false,
+      sessionApiUrl: "https://staging.clocktopus.app",
+    };
+    expect(environmentBanner(staging)).toEqual([
+      "▲ STAGING · staging.clocktopus.app",
+    ]);
+    expect(environmentTag(staging)).toBe("▲ STAGING");
+  });
+
+  it("names a checkout build, and a session still reading the environment switched from", () => {
+    const checkout = {
+      ...production,
+      cli: {
+        version: "0.13.0",
+        isCheckout: true,
+        path: "~/src/clocktopus/apps/cli",
+      },
+      sessionApiUrl: "https://staging.clocktopus.app",
+    };
+    expect(environmentBanner(checkout)).toEqual([
+      "▲ Production · clocktopus.app",
+      "CLI 0.13.0 · checkout ~/src/clocktopus/apps/cli",
+      "This session reads staging.clocktopus.app; restart Claude Code",
+    ]);
+    expect(environmentTag(checkout)).toBe("▲ CLI checkout");
+  });
+
+  it("asks for a restart when only the session lags behind a switch back to production", () => {
+    const stale = {
+      ...production,
+      sessionApiUrl: "https://staging.clocktopus.app",
+    };
+    expect(environmentTag(stale)).toBe("▲ restart Claude Code");
   });
 });

@@ -129,6 +129,17 @@ it fits.
   them across. Create a worktree for the task on the new branch instead, and
   tell the user where it is.
 
+**Working in a worktree.** Hooks, panels and the session's own branch go by
+the session's directory, which a `cd` inside one command doesn't move. An
+agent that can move its session moves it into the worktree before working
+there. In Claude Code, create the worktree in the main checkout's
+`.claude/worktrees/<name>` (the main checkout is the parent of
+`git rev-parse --path-format=absolute --git-common-dir`), add
+`.claude/worktrees/` to that common dir's `info/exclude` when git doesn't
+ignore it already, and switch into it with the `EnterWorktree` tool and its
+`path`. An agent that can't move its session gives every command and file
+path in that worktree.
+
 When committing, put the key in the conventional-commit scope as well
 (`feat(clk-12): …`) if the repository uses that format.
 
@@ -158,8 +169,9 @@ describes. For a Clocktopus task (`native`), then update its summary with
 `update_task` so it says what the pull request delivers. Tasks
 from a tracker are edited in the tracker.
 
-Then review the work with the review-work skill: it fixes what it is sure of
-and leaves the rest inline on the pull request, each with a recommended fix.
+Then review the work with the review-work skill: it fixes what it is sure of,
+has a second model settle what is still open, and leaves the rest inline on
+the pull request, each with a recommended fix.
 
 When the repository's instructions forbid an agent committing or pushing,
 stop before that step and say so.

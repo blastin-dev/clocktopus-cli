@@ -36,7 +36,7 @@ The panel refreshes after a branch or worktree change, and a refresh on a branch
 naming a task the session was never tied to ties it there. Moving back to an
 earlier task's branch leaves the session on the newest task it was tied to.
 When the session is tied to a task its own branch doesn't name, and exactly one
-worktree has that task's branch checked out, as in a goal run, the panel shows
+worktree has that task's branch checked out, the panel shows
 that worktree's branch and folder, and where the session started.
 
 `agent setup` installs it with the MCP server, on Claude Code
@@ -45,6 +45,11 @@ that wrote `types/claude-code/index.d.ts`) or later. Left out, or on an older
 Claude Code, the marketplace it builds has no `hooks/`, `tests/` or `types/`,
 and `plugin.json` no `types`.
 
+- **Environment:** off production, or with a CLI built from a checkout
+  (`clocktopus env --json`), the footer adds `▲ STAGING` (or `▲ CLI checkout`)
+  as a mode label and the pane opens with a banner naming the environment and
+  the checkout. It also says when this session's MCP server still reads the
+  environment switched from, until Claude Code restarts.
 - **Footer:** `CLK-12 · in progress · G-3 2/5 · attributed` among the mode
   labels under the prompt, with `· branch CLK-9` when the session is tied to a
   task other than the one its branch names, and `· CLI upgrade required` when
@@ -82,11 +87,27 @@ Clocktopus MCP tool call, and every two minutes. A session Clocktopus doesn't
 list yet is read again three times, ten seconds apart, since the SessionStart
 hook reports it in the background.
 
+## Working in another worktree
+
+Hooks, the panel and the session's branch all go by the session's directory,
+which a `cd` inside one Bash command doesn't move. So start-work creates a
+task's worktree in the main checkout's `.claude/worktrees/` and moves the
+session into it with `EnterWorktree` and its `path`, and a goal run does the
+same with the run's worktree.
+
+When the main agent writes a file (Edit, Write, NotebookEdit) or starts a Bash
+command with `cd` into another linked worktree of the session's repository,
+failed calls included, the model is told once per worktree a session to move
+the session there with `EnterWorktree` and that path, and to leave its current
+worktree with `ExitWorktree` first if `EnterWorktree` refuses. Reads, the main
+checkout and subagents' calls are left alone.
+
 ## Developing the hooks module
 
 `hooks/register.tsx` is the hooks module, `hooks/panel.ts` the logic it draws
 from (reading `get_session_panel`'s answer, the footer line, the session's
-rows, stages, amounts and remotes), `types/index.d.ts` the state it keeps and
+rows, stages, amounts and remotes), `hooks/stray-worktree.ts` the check for
+work in another worktree, `types/index.d.ts` the state it keeps and
 `tests/` its tests under the engine. A hooks module imports nothing but its
 plugin's own files and `claude-code` (the CLI's lint enforces it), so
 `panel.ts` stays free of Node and npm packages: it checks `get_session_panel`'s
@@ -96,12 +117,12 @@ CLI's tests hold each copy to its source: the answer to `SessionPanelSchema`,
 the remote rules to `stripRemoteCredentials` and `resolveSshHostAlias`, the
 stages to `TaskStageSchema`.
 
-| Check                                                   | Runs                                                                                                                            | In `pr-checks` |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `pnpm --filter @blastin-dev/clocktopus-cli check-types` | `tsc` with `tsconfig.json` here, against `types/claude-code/index.d.ts`                                                         | yes            |
-| `pnpm --filter @blastin-dev/clocktopus-cli lint`        | ESLint, as for the rest of the CLI                                                                                              | yes            |
-| `pnpm --filter @blastin-dev/clocktopus-cli test`        | Vitest on `panel.ts` (`src/lib/claude-plugin-panel.test.ts`; a `*.test.ts` in this folder would run under `claude plugin test`) | yes            |
-| `pnpm --filter @blastin-dev/clocktopus-cli test:plugin` | `claude plugin validate` and `claude plugin test` on this folder; needs `claude` on PATH but no sign-in                         | yes            |
+| Check                                                   | Runs                                                                                                                                                | In `pr-checks` |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `pnpm --filter @blastin-dev/clocktopus-cli check-types` | `tsc` with `tsconfig.json` here, against `types/claude-code/index.d.ts`                                                                             | yes            |
+| `pnpm --filter @blastin-dev/clocktopus-cli lint`        | ESLint, as for the rest of the CLI                                                                                                                  | yes            |
+| `pnpm --filter @blastin-dev/clocktopus-cli test`        | Vitest on `panel.ts` and `stray-worktree.ts` (`src/lib/claude-plugin-*.test.ts`; a `*.test.ts` in this folder would run under `claude plugin test`) | yes            |
+| `pnpm --filter @blastin-dev/clocktopus-cli test:plugin` | `claude plugin validate` and `claude plugin test` on this folder; needs `claude` on PATH but no sign-in                                             | yes            |
 
 `types/claude-code/index.d.ts` is a pinned copy of the engine's declarations;
 its first line names the Claude Code version that wrote it, and CI installs

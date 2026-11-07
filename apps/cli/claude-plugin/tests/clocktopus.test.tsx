@@ -117,6 +117,11 @@ type World = {
   // one built from source does, when absent.
   installedCli?: string;
   pluginVersion?: string;
+  // `clocktopus env --json`'s answer, and the API the plugin's `.mcp.json` names.
+  environment?: Record<string, unknown>;
+  mcpApiUrl?: string;
+  // `HC_TERMINAL_ID`: the Herdr terminal the session runs in; none when absent.
+  herdrTerminal?: string;
   // What the server answers for the CLI version it is sent.
   cli?: {
     latest: string | null;
@@ -147,8 +152,15 @@ function engine(on: On, world: World) {
   const opens: string[] = [];
   const opened: string[] = [];
   const copied: string[] = [];
+  // Every `clocktopus …` the plugin ran, as argv after `clocktopus`.
+  const cli: string[][] = [];
+  // Every `hc …` the plugin ran, as argv after `hc`.
+  const herdr: string[][] = [];
   const clock = mock.clock(on, { now: Date.UTC(2026, 9, 26, 9, 30) });
-  mock.env(on, { HOME: "/home/dana" });
+  mock.env(on, {
+    HOME: "/home/dana",
+    ...(world.herdrTerminal ? { HC_TERMINAL_ID: world.herdrTerminal } : {}),
+  });
   const describe = (key: string | null) => {
     const task = key ? TASKS[key] : undefined;
     return task
@@ -276,14 +288,25 @@ function engine(on: On, world: World) {
           name: "clocktopus",
           version: world.pluginVersion ?? "0.0.0",
         })
-      : "",
+      : e.path.endsWith("/.mcp.json") && world.mcpApiUrl
+        ? JSON.stringify({
+            mcpServers: {
+              clocktopus: { type: "http", url: `${world.mcpApiUrl}/api/mcp` },
+            },
+          })
+        : "",
   }));
   on("process.run", (_, e) => {
     if (e.argv[0] === "clocktopus") {
+      cli.push(e.argv.slice(1));
+      const answer =
+        e.argv[1] === "env"
+          ? world.environment && JSON.stringify(world.environment)
+          : world.installedCli && `${world.installedCli}\n`;
       return {
         value: {
-          exitCode: world.installedCli ? 0 : 127,
-          stdout: world.installedCli ? `${world.installedCli}\n` : "",
+          exitCode: answer ? 0 : 127,
+          stdout: answer ?? "",
           stderr: "",
           isStdoutTruncated: false,
           isStderrTruncated: false,
@@ -291,13 +314,15 @@ function engine(on: On, world: World) {
       };
     }
     if (e.argv[0] === "xdg-open") opened.push(e.argv[1] ?? "");
+    if (e.argv[0] === "hc") herdr.push(e.argv.slice(1));
     const stdout =
       e.argv[0] === "ssh"
         ? `user dana\nhostname ${e.argv[2] === "github-acme" ? "github.com" : e.argv[2]}\nport 22\n`
         : e.argv.includes("--porcelain")
           ? (world.worktrees ?? "")
           : e.argv.includes("--show-toplevel")
-            ? world.worktree
+            ? world.worktree ||
+              e.init?.cwd?.startsWith("/home/dana/work/acme-portal-export")
               ? `/home/dana/work/acme-portal-export\n/home/dana/work/acme-portal/.git/worktrees/acme-portal-export\n/home/dana/work/acme-portal/.git\n`
               : `/home/dana/work/acme-portal\n/home/dana/work/acme-portal/.git\n/home/dana/work/acme-portal/.git\n`
             : e.argv.includes("rev-parse")
@@ -345,13 +370,15 @@ function engine(on: On, world: World) {
       },
     };
   });
+  // `__failing_tool` and a Bash command running `false` report an error.
   on("tool.call", (_, e) =>
-    e.tool.endsWith("__failing_tool")
+    e.tool.endsWith("__failing_tool") ||
+    (e.tool === "Bash" && /\bfalse\b/.test(String({ ...e }.command)))
       ? { result: {}, text: "failed", isError: true }
       : { result: {}, text: "{}" },
   );
 
-  return { calls, connects, clock, opens, opened, copied };
+  return { calls, connects, clock, opens, opened, copied, cli, herdr };
 }
 
 test("the status line, band and pane show the branch task, its goal and the attribution", async ($, on) => {
@@ -548,6 +575,32 @@ test("a branch naming no task says so, and a Clocktopus tool call shows the tie 
   expect(await footer($)).toBe("ACME-42 · in progress · G-2 1/4 · attributed");
 });
 
+test("in a Herdr terminal the label names the task Clocktopus tied the session to, never only its branch's", async ($, on) => {
+  const world: World = {
+    branch: "dana/acme-42-export",
+    isKnown: false,
+    shares: {},
+    herdrTerminal: "t-7",
+  };
+  const { clock, herdr } = engine(on, world);
+  await $.session.start(START);
+  await clock.settle();
+  expect(herdr.at(-1)?.slice(0, 2)).toEqual(["label", "t-7"]);
+  expect(herdr.at(-1)?.[3]).toBe("clocktopus.task=");
+
+  world.isKnown = true;
+  world.currentKey = "ACME-42";
+  world.shares = { "ACME-42": 0 };
+  await $.tool.call({
+    tool: "mcp__plugin_clocktopus_clocktopus__link_session",
+    repositoryUrl: REMOTE,
+    key: "acme-42",
+    agentSessionId: "s-1",
+  });
+  await clock.settle();
+  expect(herdr.at(-1)?.[3]).toBe("clocktopus.task=ACME-42");
+});
+
 test("several organisations linking the repository says so", async ($, on) => {
   const { clock } = engine(on, {
     ...reported({}),
@@ -673,7 +726,7 @@ test("the checkout’s HEAD is watched, and a branch switch there refreshes", as
   const { clock } = engine(on, world);
   await $.session.start(START);
   const started = await $.classic.SessionStart({ source: "startup" });
-  expect(started.watchPaths).toEqual(["/work/acme-portal/.git/HEAD"]);
+  expect(started.watchPaths?.[0]).toBe("/work/acme-portal/.git/HEAD");
   await clock.settle();
   expect(await footer($)).toBe("Clocktopus: branch main names no task");
 
@@ -684,6 +737,41 @@ test("the checkout’s HEAD is watched, and a branch switch there refreshes", as
   });
   await clock.settle();
   expect(await footer($)).toBe("ACME-42 · in progress · G-2 1/4 · attributed");
+});
+
+test("the session starts this machine's realtime watcher and refreshes on a change hint", async ($, on) => {
+  const world: World = {
+    branch: "main",
+    isKnown: true,
+    shares: { "ACME-42": 1 },
+  };
+  const { clock, calls, cli } = engine(on, world);
+  await $.session.start(START);
+  const started = await $.classic.SessionStart({ source: "startup" });
+  expect(cli).toContainEqual(["realtime", "watch", "--detach"]);
+  expect(started.watchPaths).toEqual([
+    "/work/acme-portal/.git/HEAD",
+    "/home/dana/.clocktopus/realtime/tasks",
+    "/home/dana/.clocktopus/realtime/pull-requests",
+    "/home/dana/.clocktopus/realtime/agent-sessions",
+    "/home/dana/.clocktopus/realtime/time-entries",
+  ]);
+  await clock.settle();
+  const before = calls.length;
+
+  await $.classic.FileChanged({
+    file_path: "/home/dana/.clocktopus/realtime/status",
+    event: "change",
+  });
+  await clock.settle();
+  expect(calls.length).toBe(before);
+
+  await $.classic.FileChanged({
+    file_path: "/home/dana/.clocktopus/realtime/tasks",
+    event: "change",
+  });
+  await clock.settle();
+  expect(calls.length).toBe(before + 1);
 });
 
 test("moving to another directory refreshes", async ($, on) => {
@@ -727,6 +815,49 @@ test("a branch switch in Bash and EnterWorktree refresh", async ($, on) => {
   await $.tool.call({ tool: "EnterWorktree", name: "acme-42" });
   await clock.settle();
   expect(calls.length).toBe(before + 1);
+});
+
+test("writing or a failed cd in another worktree of the repository tells the model once to move the session there", async ($, on) => {
+  const { clock } = engine(on, reported({ "ACME-42": 1 }));
+  await $.session.start(START);
+  await clock.settle();
+  const NOTE =
+    /EnterWorktree tool and path "\/home\/dana\/work\/acme-portal-export"/;
+
+  const bash = await $.tool.call({
+    tool: "Bash",
+    command: "cd /home/dana/work/acme-portal-export && false",
+  });
+  expect(bash.isError).toBe(true);
+  expect(bash.context?.[0]).toMatch(NOTE);
+  const edit = await $.tool.call({
+    tool: "Edit",
+    file_path: "/home/dana/work/acme-portal-export/src/a.ts",
+  });
+  expect(edit.context ?? []).toEqual([]);
+});
+
+test("reads, the session's own checkout and subagents' calls get no note to move", async ($, on) => {
+  const { clock } = engine(on, reported({ "ACME-42": 1 }));
+  await $.session.start(START);
+  await clock.settle();
+
+  const read = await $.tool.call({
+    tool: "Read",
+    file_path: "/home/dana/work/acme-portal-export/src/a.ts",
+  });
+  expect(read.context ?? []).toEqual([]);
+  const own = await $.tool.call({
+    tool: "Edit",
+    file_path: "/home/dana/work/acme-portal/src/a.ts",
+  });
+  expect(own.context ?? []).toEqual([]);
+  const subagent = await $.tool.call({
+    tool: "Edit",
+    agentId: "agent-1",
+    file_path: "/home/dana/work/acme-portal-export/src/a.ts",
+  });
+  expect(subagent.context ?? []).toEqual([]);
 });
 
 test("a change to another watched file does not refresh", async ($, on) => {
@@ -963,6 +1094,111 @@ test("the pane shows the CLI's version, the one available and how to upgrade", a
   expect(
     (await pane.find({ type: "Text", text: /^clocktopus upgrade$/ }))?.text,
   ).toBe("clocktopus upgrade");
+  await pane.unmount();
+});
+
+test("off production, or on a checkout build, the pane says so above everything", async ($, on) => {
+  const { clock } = engine(on, {
+    ...reported({ "ACME-42": 1 }),
+    installedCli: "0.13.0",
+    environment: {
+      name: "staging",
+      apiUrl: "https://staging.clocktopus.app",
+      isProduction: false,
+      cli: {
+        version: "0.13.0",
+        installMethod: "checkout",
+        isCheckout: true,
+        path: "~/src/clocktopus/apps/cli",
+      },
+    },
+    mcpApiUrl: "https://clocktopus.app",
+  });
+  await $.session.start(START);
+  await clock.settle();
+
+  const pane = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect((await pane.find({ type: "Text", text: /^▲/ }))?.text).toBe(
+    "▲ STAGING · staging.clocktopus.app",
+  );
+  expect((await pane.find({ type: "Text", text: /^CLI / }))?.text).toBe(
+    "CLI 0.13.0 · checkout ~/src/clocktopus/apps/cli",
+  );
+  expect(
+    (await pane.find({ type: "Text", text: /^This session reads/ }))?.text,
+  ).toBe("This session reads clocktopus.app; restart Claude Code");
+  await pane.unmount();
+});
+
+test("after a switch the pane asks for a restart, since the session's MCP server still reads the old environment", async ($, on) => {
+  const world = {
+    ...reported({ "ACME-42": 1 }),
+    installedCli: "0.13.0",
+    environment: {
+      name: "prod",
+      apiUrl: "https://clocktopus.app",
+      isProduction: true,
+      cli: {
+        version: "0.13.0",
+        installMethod: "mise",
+        isCheckout: false,
+        path: null,
+      },
+    },
+    mcpApiUrl: "https://clocktopus.app",
+  };
+  const { clock } = engine(on, world);
+  await $.session.start(START);
+  await clock.settle();
+
+  // `clocktopus env use staging` rewrites the plugin's `.mcp.json` under the running session.
+  world.environment = {
+    ...world.environment,
+    name: "staging",
+    apiUrl: "https://staging.clocktopus.app",
+    isProduction: false,
+  };
+  world.mcpApiUrl = "https://staging.clocktopus.app";
+  await $.command.run({
+    command: "clocktopus-panel",
+    args: "refresh",
+    origin: { kind: "composer" },
+    presentation: { isFullscreen: false, columns: 120 },
+  });
+  await clock.settle();
+
+  const pane = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect((await pane.find({ type: "Text", text: /^▲/ }))?.text).toBe(
+    "▲ STAGING · staging.clocktopus.app",
+  );
+  expect(
+    (await pane.find({ type: "Text", text: /^This session reads/ }))?.text,
+  ).toBe("This session reads clocktopus.app; restart Claude Code");
+  await pane.unmount();
+});
+
+test("a production release shows no environment banner", async ($, on) => {
+  const { clock } = engine(on, {
+    ...reported({ "ACME-42": 1 }),
+    installedCli: "0.13.0",
+    environment: {
+      name: "prod",
+      apiUrl: "https://clocktopus.app",
+      isProduction: true,
+      cli: {
+        version: "0.13.0",
+        installMethod: "mise",
+        isCheckout: false,
+        path: null,
+      },
+    },
+    mcpApiUrl: "https://clocktopus.app",
+  });
+  await $.session.start(START);
+  await clock.settle();
+
+  const pane = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect(await pane.find({ type: "Text", text: /^▲/ })).toBeFalsy();
   await pane.unmount();
 });
 

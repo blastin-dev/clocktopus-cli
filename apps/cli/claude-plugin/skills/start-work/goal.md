@@ -38,7 +38,8 @@ skill), or to skip some. A skipped task stays in the goal.
 
 Create one git worktree for the run, so the user's checkout stays free, and
 create every task's branch in it, named as step 4 of [`SKILL.md`](SKILL.md)
-describes.
+describes. Work in it as that step's _Working in a worktree_ says; an agent
+that moves its session there starts the subagents there too.
 
 - The first task's branch starts from the up-to-date trunk (the branch the
   repository's pull requests target), or from the top of the user's own open
