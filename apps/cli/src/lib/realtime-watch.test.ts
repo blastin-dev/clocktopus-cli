@@ -1,4 +1,12 @@
-import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -16,6 +24,7 @@ import {
   isIdle,
   realtimeDir,
   releaseLock,
+  restartWatcher,
   runningWatcher,
   touchLease,
   wasDisabled,
@@ -252,5 +261,66 @@ describe("watchRealtime", () => {
     expect(JSON.parse(readFileSync(join(dir, "status"), "utf8")).state).toBe(
       "stopped",
     );
+  });
+});
+
+describe("restartWatcher", () => {
+  it("stops the running watcher, forgets a disabled status and starts another", async () => {
+    const dir = scratch();
+    const old = spawn(process.execPath, [
+      "-e",
+      "setTimeout(() => {}, 30000)",
+      "realtime",
+      "watch",
+    ]);
+    const exited = new Promise((resolve) => old.once("exit", resolve));
+    await once(old, "spawn");
+    writeFileSync(join(dir, "watch.pid"), String(old.pid));
+    writeFileSync(
+      join(dir, "status"),
+      JSON.stringify({ state: "disabled", pid: old.pid, at: Date.now() }),
+    );
+
+    const restarted = await restartWatcher({
+      dir,
+      topics: BOARD_TOPICS,
+      argv: ["-e", ""],
+    });
+
+    expect(restarted).toBe(true);
+    await exited;
+    expect(existsSync(join(dir, "status"))).toBe(false);
+    expect(existsSync(join(dir, "lease"))).toBe(true);
+  });
+
+  it("leaves alone a program that took a dead watcher's pid, and drops its lock", async () => {
+    const dir = scratch();
+    const other = spawn(process.execPath, [
+      "-e",
+      "setTimeout(() => {}, 30000)",
+    ]);
+    try {
+      await once(other, "spawn");
+      writeFileSync(join(dir, "watch.pid"), String(other.pid));
+
+      expect(
+        await restartWatcher({ dir, topics: BOARD_TOPICS, argv: ["-e", ""] }),
+      ).toBe(true);
+
+      expect(other.exitCode).toBeNull();
+      expect(other.signalCode).toBeNull();
+      expect(existsSync(join(dir, "watch.pid"))).toBe(false);
+      expect(existsSync(join(dir, "lease"))).toBe(false);
+    } finally {
+      other.kill();
+    }
+  });
+
+  it("starts nothing when no watcher ran", async () => {
+    const dir = scratch();
+    expect(
+      await restartWatcher({ dir, topics: BOARD_TOPICS, argv: ["-e", ""] }),
+    ).toBe(true);
+    expect(existsSync(join(dir, "lease"))).toBe(false);
   });
 });

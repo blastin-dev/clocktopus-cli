@@ -117,6 +117,9 @@ type World = {
   // one built from source does, when absent.
   installedCli?: string;
   pluginVersion?: string;
+  // `clocktopus env --json`'s answer, and the API the plugin's `.mcp.json` names.
+  environment?: Record<string, unknown>;
+  mcpApiUrl?: string;
   // What the server answers for the CLI version it is sent.
   cli?: {
     latest: string | null;
@@ -278,15 +281,25 @@ function engine(on: On, world: World) {
           name: "clocktopus",
           version: world.pluginVersion ?? "0.0.0",
         })
-      : "",
+      : e.path.endsWith("/.mcp.json") && world.mcpApiUrl
+        ? JSON.stringify({
+            mcpServers: {
+              clocktopus: { type: "http", url: `${world.mcpApiUrl}/api/mcp` },
+            },
+          })
+        : "",
   }));
   on("process.run", (_, e) => {
     if (e.argv[0] === "clocktopus") {
       cli.push(e.argv.slice(1));
+      const answer =
+        e.argv[1] === "env"
+          ? world.environment && JSON.stringify(world.environment)
+          : world.installedCli && `${world.installedCli}\n`;
       return {
         value: {
-          exitCode: world.installedCli ? 0 : 127,
-          stdout: world.installedCli ? `${world.installedCli}\n` : "",
+          exitCode: answer ? 0 : 127,
+          stdout: answer ?? "",
           stderr: "",
           isStdoutTruncated: false,
           isStderrTruncated: false,
@@ -1047,6 +1060,111 @@ test("the pane shows the CLI's version, the one available and how to upgrade", a
   expect(
     (await pane.find({ type: "Text", text: /^clocktopus upgrade$/ }))?.text,
   ).toBe("clocktopus upgrade");
+  await pane.unmount();
+});
+
+test("off production, or on a checkout build, the pane says so above everything", async ($, on) => {
+  const { clock } = engine(on, {
+    ...reported({ "ACME-42": 1 }),
+    installedCli: "0.13.0",
+    environment: {
+      name: "staging",
+      apiUrl: "https://staging.clocktopus.app",
+      isProduction: false,
+      cli: {
+        version: "0.13.0",
+        installMethod: "checkout",
+        isCheckout: true,
+        path: "~/src/clocktopus/apps/cli",
+      },
+    },
+    mcpApiUrl: "https://clocktopus.app",
+  });
+  await $.session.start(START);
+  await clock.settle();
+
+  const pane = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect((await pane.find({ type: "Text", text: /^▲/ }))?.text).toBe(
+    "▲ STAGING · staging.clocktopus.app",
+  );
+  expect((await pane.find({ type: "Text", text: /^CLI / }))?.text).toBe(
+    "CLI 0.13.0 · checkout ~/src/clocktopus/apps/cli",
+  );
+  expect(
+    (await pane.find({ type: "Text", text: /^This session reads/ }))?.text,
+  ).toBe("This session reads clocktopus.app; restart Claude Code");
+  await pane.unmount();
+});
+
+test("after a switch the pane asks for a restart, since the session's MCP server still reads the old environment", async ($, on) => {
+  const world = {
+    ...reported({ "ACME-42": 1 }),
+    installedCli: "0.13.0",
+    environment: {
+      name: "prod",
+      apiUrl: "https://clocktopus.app",
+      isProduction: true,
+      cli: {
+        version: "0.13.0",
+        installMethod: "mise",
+        isCheckout: false,
+        path: null,
+      },
+    },
+    mcpApiUrl: "https://clocktopus.app",
+  };
+  const { clock } = engine(on, world);
+  await $.session.start(START);
+  await clock.settle();
+
+  // `clocktopus env use staging` rewrites the plugin's `.mcp.json` under the running session.
+  world.environment = {
+    ...world.environment,
+    name: "staging",
+    apiUrl: "https://staging.clocktopus.app",
+    isProduction: false,
+  };
+  world.mcpApiUrl = "https://staging.clocktopus.app";
+  await $.command.run({
+    command: "clocktopus-panel",
+    args: "refresh",
+    origin: { kind: "composer" },
+    presentation: { isFullscreen: false, columns: 120 },
+  });
+  await clock.settle();
+
+  const pane = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect((await pane.find({ type: "Text", text: /^▲/ }))?.text).toBe(
+    "▲ STAGING · staging.clocktopus.app",
+  );
+  expect(
+    (await pane.find({ type: "Text", text: /^This session reads/ }))?.text,
+  ).toBe("This session reads clocktopus.app; restart Claude Code");
+  await pane.unmount();
+});
+
+test("a production release shows no environment banner", async ($, on) => {
+  const { clock } = engine(on, {
+    ...reported({ "ACME-42": 1 }),
+    installedCli: "0.13.0",
+    environment: {
+      name: "prod",
+      apiUrl: "https://clocktopus.app",
+      isProduction: true,
+      cli: {
+        version: "0.13.0",
+        installMethod: "mise",
+        isCheckout: false,
+        path: null,
+      },
+    },
+    mcpApiUrl: "https://clocktopus.app",
+  });
+  await $.session.start(START);
+  await clock.settle();
+
+  const pane = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect(await pane.find({ type: "Text", text: /^▲/ })).toBeFalsy();
   await pane.unmount();
 });
 

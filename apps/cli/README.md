@@ -176,7 +176,8 @@ returns it (`TaskBoardSchema` in `@repo/cli-contract/task-board`), with your
 own agent sessions on each task and where they ran, and the project's active
 goals with their tasks' keys, or a `status` of
 `signed_out`, `not_a_repository` or `error`. It exits with `1` on any of
-those.
+those. Every object carries `environment`: the server the CLI talks to and
+the build that answered.
 
 ### `clocktopus realtime watch`
 
@@ -769,15 +770,12 @@ you sign in to, not with the ingest token.
 
 Credentials are stored in a platform-specific config directory:
 
-- **macOS**: `~/Library/Preferences/clocktopus-cli-nodejs/conf
-ig.json`
+- **macOS**: `~/Library/Preferences/clocktopus-cli-nodejs/config.json`
 - **Linux**: `~/.config/clocktopus-cli-nodejs/config.json`
 - **Windows**: `%APPDATA%/clocktopus-cli-nodejs/config.json`
 
-Run `clocktopus logout` to clear stored credentials.
+The file is readable by you alone. It holds your login, and the ingest token
+`agent setup` last installed, with its id (needed to revoke) and its display
+prefix.
 
-The agent telemetry setup deliberately keeps **no** copy of the ingest token
-here. It has to live in each agent's own config for that agent's exporter to
-read it, and a second copy would be another thing to leak and another thing
-to fall out of date. Only the token id (needed to revoke) and its display
-prefix are kept.
+Run `clocktopus logout` to clear your login.

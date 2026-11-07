@@ -7,6 +7,7 @@ import {
 } from "@repo/cli-contract/task-board";
 
 import { ApiError, get } from "../lib/api.js";
+import { describeEnvironment } from "../lib/cli-environment.js";
 import { isLoggedIn } from "../lib/config.js";
 import { formatAgo } from "../lib/format.js";
 import { getRepositoryRemotes } from "../lib/git.js";
@@ -18,8 +19,9 @@ export type TasksOptions = {
   limit?: string;
 };
 
-// What `--json` prints: the server's board, or a status the CLI decided on
-// before or instead of asking it. Herdr's Clocktopus mod reads this.
+// What `--json` prints, with `environment` beside it: the server's board, or a
+// status the CLI decided on before or instead of asking it. Herdr's Clocktopus
+// mod reads this.
 type TasksOutput =
   | TaskBoard
   | { status: "signed_out" }
@@ -147,7 +149,9 @@ export function formatTaskBoard(output: TasksOutput): string {
 export async function tasksCommand(options: TasksOptions): Promise<void> {
   const { output, failed } = await loadTaskBoard(options);
   if (options.json) {
-    console.log(JSON.stringify(output));
+    console.log(
+      JSON.stringify({ ...output, environment: describeEnvironment() }),
+    );
   } else if (failed) {
     console.error(formatTaskBoard(output));
   } else {

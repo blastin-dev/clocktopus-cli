@@ -45,6 +45,11 @@ that wrote `types/claude-code/index.d.ts`) or later. Left out, or on an older
 Claude Code, the marketplace it builds has no `hooks/`, `tests/` or `types/`,
 and `plugin.json` no `types`.
 
+- **Environment:** off production, or with a CLI built from a checkout
+  (`clocktopus env --json`), the footer adds `▲ STAGING` (or `▲ CLI checkout`)
+  as a mode label and the pane opens with a banner naming the environment and
+  the checkout. It also says when this session's MCP server still reads the
+  environment switched from, until Claude Code restarts.
 - **Footer:** `CLK-12 · in progress · G-3 2/5 · attributed` among the mode
   labels under the prompt, with `· branch CLK-9` when the session is tied to a
   task other than the one its branch names, and `· CLI upgrade required` when

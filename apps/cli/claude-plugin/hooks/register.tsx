@@ -9,6 +9,9 @@ import {
   clock,
   colorOf,
   duration,
+  environmentBanner,
+  environmentOf,
+  environmentTag,
   hidden,
   isRealtimeHint,
   isRecord,
@@ -49,6 +52,20 @@ const CONNECTING = "connecting…";
 const view = atom({ plugin: "clocktopus", key: "view" } as const, null, {
   shape: "view-6",
 });
+const environment = atom(
+  { plugin: "clocktopus", key: "environment" } as const,
+  null,
+  { shape: "environment-1" },
+);
+// The plugin's `.mcp.json` as this session's start found it. Claude Code connects to its MCP
+// server then, and `clocktopus env use` rewrites the file in place afterwards.
+const sessionMcp = atom(
+  { plugin: "clocktopus", key: "sessionMcp" } as const,
+  null,
+);
+
+const readMcpConfig = ($: EngineInterface) =>
+  $.fs.read(`${$.plugin.root}/.mcp.json`).catch(() => "");
 const isBandShown = atom(
   { plugin: "clocktopus", key: "isBandShown" } as const,
   false,
@@ -157,6 +174,19 @@ async function localVersions($: EngineInterface): Promise<LocalVersions> {
   return { installed, plugin };
 }
 
+// Which server the CLI talks to and which build it is, beside the server this session's
+// plugin reads; a CLI without `env` leaves it null.
+async function readEnvironment($: EngineInterface) {
+  const [env, mcp] = await Promise.all([
+    $.process
+      .run(["clocktopus", "env", "--json"], { timeoutMs: 5000 })
+      .then(({ exitCode, stdout }) => (exitCode === 0 ? stdout : ""))
+      .catch(() => ""),
+    read($, sessionMcp).then((loaded) => loaded ?? readMcpConfig($)),
+  ]);
+  return environmentOf(env, mcp || null, MCP_SERVER);
+}
+
 async function load(
   $: EngineInterface,
 ): Promise<Omit<View, "error" | "updatedAt">> {
@@ -261,6 +291,9 @@ let unreportedRechecks = 0;
 
 async function refreshOnce($: EngineInterface) {
   const updatedAt = await $.clock.now();
+  const environmentRead = readEnvironment($).then((next) =>
+    update($, environment, () => next),
+  );
   let next: View;
   try {
     next = { ...(await load($)), error: null, updatedAt };
@@ -294,6 +327,7 @@ async function refreshOnce($: EngineInterface) {
     }
   }
   await update($, view, () => next);
+  await environmentRead.catch(() => undefined);
 }
 
 // One refresh at a time; a request made meanwhile runs one more after it.
@@ -329,6 +363,8 @@ export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
     const started = await next(e);
     notedWorktrees.clear();
+    const mcp = await readMcpConfig($);
+    await update($, sessionMcp, () => mcp);
     await $.command.register({
       name: "clocktopus-panel",
       description:
@@ -442,10 +478,13 @@ export const register: Register = (on) => {
       isPaneOffered = true;
       $.clock.after(0, () => void offerPane($));
     }
-    const line = statusLine(current);
+    const labels = [
+      environmentTag(await read($, environment)),
+      statusLine(current),
+    ].filter((label) => label !== null && label !== undefined);
     return next(
-      line
-        ? { ...e, props: { ...e.props, modes: [...e.props.modes, line] } }
+      labels.length > 0
+        ? { ...e, props: { ...e.props, modes: [...e.props.modes, ...labels] } }
         : e,
     );
   });
@@ -524,6 +563,7 @@ export const register: Register = (on) => {
       ...rows.map((row) => row.key.length),
     );
     const isTaskListed = rows.some((row) => row.key === task?.key);
+    const banner = environmentBanner(await read($, environment));
     const footer = current
       ? `updated ${clock(current.updatedAt)}${current.error ? ` · last refresh failed: ${current.error}` : ""}`
       : "loading…";
@@ -565,6 +605,20 @@ export const register: Register = (on) => {
 
     return (
       <Box flexDirection="column" width={e.props.bodyColumns}>
+        {banner && (
+          <Box flexDirection="column" marginBottom={1}>
+            {banner.map((line, index) => (
+              <Text
+                key={line}
+                color="warning"
+                bold={index === 0}
+                wrap="truncate-end"
+              >
+                {line}
+              </Text>
+            ))}
+          </Box>
+        )}
         {!task && (
           <Text dimColor>{current?.error ?? current?.note ?? "Loading…"}</Text>
         )}

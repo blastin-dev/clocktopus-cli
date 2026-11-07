@@ -29,6 +29,7 @@ import {
   panelUnsupportedReason,
 } from "../../lib/claude-plugin.js";
 import {
+  getAgentConfig,
   getApiUrl,
   isLoggedIn,
   setAgentConfig,
@@ -148,31 +149,46 @@ export async function runAgentSetup(
     };
   }
 
-  // One token per machine: every mint leaves another live token on the account.
-  let token = options.force
-    ? null
-    : (findMachineTelemetry(survey)?.token ?? null);
+  // One token per machine and environment: every mint leaves another live
+  // token on the account. Each candidate is tried only against the receiver it
+  // was installed for, so one environment's token is never sent to another's:
+  // the environment's stored one first, then the one the machine's agents hold.
+  const stored = getAgentConfig();
+  const machine = findMachineTelemetry(survey);
+  const isReceiver = (other: string | null | undefined) =>
+    other?.replace(/\/$/, "") === endpoint.replace(/\/$/, "");
+  const candidates = options.force
+    ? []
+    : [
+        ...new Set(
+          [
+            isReceiver(stored.endpoint) ? stored.ingestToken : undefined,
+            isReceiver(machine?.endpoint) ? machine?.token : undefined,
+          ].filter((candidate) => candidate !== undefined),
+        ),
+      ];
+  let token: string | null = null;
   let tokenId: string | null = null;
   let minted = false;
+  let rejection: string | null = null;
 
-  if (token) {
-    const check = await verifyReceiver(endpoint, token);
+  for (const candidate of candidates) {
+    const check = await verifyReceiver(endpoint, candidate);
     if (!check.ok) {
-      console.log(
+      rejection =
         check.reason === "invalid_token"
           ? "Existing token was rejected by the receiver — minting a replacement."
-          : "Could not confirm the existing token — minting a replacement.",
-      );
-      token = null;
+          : "Could not confirm the existing token — minting a replacement.";
     } else if (check.userId !== null && check.userId !== userId) {
-      console.log(
-        `The token on this machine reports to another Clocktopus account — minting one for ${email}.`,
-      );
-      token = null;
+      rejection = `The token on this machine reports to another Clocktopus account — minting one for ${email}.`;
+    } else {
+      token = candidate;
+      break;
     }
   }
 
   if (!token) {
+    if (rejection) console.log(rejection);
     try {
       const response = await post("/api/agent/ingest-token", {
         name: options.name ?? hostname(),
@@ -232,8 +248,10 @@ export async function runAgentSetup(
   }
 
   setAgentConfig({
-    tokenId: tokenId ?? undefined,
+    tokenId:
+      tokenId ?? (token === stored.ingestToken ? stored.tokenId : undefined),
     tokenPrefix: maskToken(token),
+    ingestToken: token,
     endpoint,
     configuredAt: new Date().toISOString(),
   });

@@ -1,9 +1,10 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   linkSync,
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -179,6 +180,58 @@ export function isIdle(dir: string, now = Date.now()) {
   } catch {
     return true;
   }
+}
+
+// Stops the running watcher and starts another, which reads the environment
+// afresh; nothing starts when none ran. False when the old one didn't stop
+// within `waitMs`.
+export async function restartWatcher(input: {
+  dir: string;
+  topics: RealtimeTopic[];
+  argv: string[];
+  waitMs?: number;
+}): Promise<boolean> {
+  // A `disabled` status belonged to the environment switched from.
+  rmSync(join(input.dir, "status"), { force: true });
+  const pid = runningWatcher(input.dir);
+  if (pid === null) return true;
+  // A lock whose pid now belongs to another program is stale: removed, that
+  // program left alone.
+  if (!isWatcherProcess(pid)) {
+    rmSync(lockPath(input.dir), { force: true });
+    return true;
+  }
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    // Gone already.
+  }
+  const deadline = Date.now() + (input.waitMs ?? 3000);
+  while (runningWatcher(input.dir) !== null) {
+    if (Date.now() > deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  ensureWatcher(input);
+  return true;
+}
+
+// Whether `pid` runs `realtime watch`, as `ensureWatcher` starts it; false
+// when its command line can't be read.
+export function isWatcherProcess(pid: number): boolean {
+  let command: string;
+  try {
+    command =
+      process.platform === "linux"
+        ? readFileSync(`/proc/${pid}/cmdline`, "utf8").replaceAll("\0", " ")
+        : execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+            timeout: 2000,
+          });
+  } catch {
+    return false;
+  }
+  return /\brealtime\s+watch\b/.test(command);
 }
 
 // The watcher's environment: the caller's, without `HC_SCOPE`. herdr-core hangs

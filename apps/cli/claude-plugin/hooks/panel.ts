@@ -1,4 +1,4 @@
-import type { Attribution, Cli, Goal, Task, View } from "../types";
+import type { Attribution, Cli, Environment, Goal, Task, View } from "../types";
 
 // The web app's `STAGE_LABEL`, lowercased.
 export const STAGE_LABEL: Record<string, string> = {
@@ -500,4 +500,87 @@ export function withSshConfig(remote: string, config: string) {
     return `${prefix}${hostname}:${path.slice(1)}`;
   }
   return `${prefix}${hostname}:${parts.scp?.[3] ?? ""}`;
+}
+
+// `env` is `clocktopus env --json`'s stdout, `mcp` the plugin's `.mcp.json` as the session's start
+// read it (null when it had none). Null when the CLI answered nothing it knows, as a CLI without
+// `env` does.
+export function environmentOf(
+  env: string,
+  mcp: string | null,
+  server = "clocktopus",
+): Environment | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(env);
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed) || !isRecord(parsed.cli)) return null;
+  const name = text(parsed.name);
+  const apiUrl = text(parsed.apiUrl);
+  const version = text(parsed.cli.version);
+  if (!name || !apiUrl || !version) return null;
+  return {
+    name,
+    apiUrl,
+    isProduction: parsed.isProduction === true,
+    cli: {
+      version,
+      isCheckout: parsed.cli.isCheckout === true,
+      path: text(parsed.cli.path),
+    },
+    sessionApiUrl: mcpApiUrl(mcp, server),
+  };
+}
+
+function mcpApiUrl(mcp: string | null, server: string) {
+  if (!mcp) return null;
+  try {
+    const parsed: unknown = JSON.parse(mcp);
+    const servers = isRecord(parsed) ? parsed.mcpServers : null;
+    const entry = isRecord(servers) ? servers[server] : null;
+    const url = isRecord(entry) ? text(entry.url) : null;
+    return url ? url.replace(/\/api\/mcp\/?$/, "") : null;
+  } catch {
+    return null;
+  }
+}
+
+const hostOf = (url: string) => /^[a-z]+:\/\/([^/?#]+)/i.exec(url)?.[1] ?? url;
+
+// The banner's lines, the first its title; null on a production release reading production.
+export function environmentBanner(environment: Environment | null) {
+  if (!environment) return null;
+  const isStale =
+    environment.sessionApiUrl !== null &&
+    environment.sessionApiUrl !== environment.apiUrl;
+  if (environment.isProduction && !environment.cli.isCheckout && !isStale)
+    return null;
+  const where = environment.isProduction
+    ? "Production"
+    : environment.name.toUpperCase();
+  return [
+    `▲ ${where} · ${hostOf(environment.apiUrl)}`,
+    ...(environment.cli.isCheckout
+      ? [
+          `CLI ${environment.cli.version} · checkout ${environment.cli.path ?? ""}`.trimEnd(),
+        ]
+      : []),
+    ...(isStale && environment.sessionApiUrl
+      ? [
+          `This session reads ${hostOf(environment.sessionApiUrl)}; restart Claude Code`,
+        ]
+      : []),
+  ];
+}
+
+// The footer's short form: the environment off production, else `CLI checkout` for a checkout
+// build, else `restart Claude Code` while this session reads the environment switched from.
+export function environmentTag(environment: Environment | null) {
+  if (!environment || !environmentBanner(environment)) return null;
+  if (!environment.isProduction) return `▲ ${environment.name.toUpperCase()}`;
+  return environment.cli.isCheckout
+    ? "▲ CLI checkout"
+    : "▲ restart Claude Code";
 }
