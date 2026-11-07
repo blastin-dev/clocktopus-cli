@@ -38,7 +38,7 @@ import {
   resumeChoice,
   resumeSpace,
   spaceFolder,
-  startAgent,
+  startAgents,
   startPrompt,
   tabRenames,
   terminalOf,
@@ -734,13 +734,12 @@ describe("starting work", () => {
     { key: "pi", name: "Pi", run: ["pi"], installed: true },
   ];
 
-  it("starts with the first of Claude Code, Codex and OpenCode installed on the machine", () => {
-    expect(startAgent(known)).toEqual({
-      key: "codex",
-      name: "Codex",
-      run: ["codex"],
-    });
-    expect(startAgent(known.slice(3))).toBeNull();
+  it("offers the installed agents with the start-work skill, most picked first as Herdr lists them", () => {
+    expect(startAgents(known)).toEqual([
+      { key: "opencode", name: "OpenCode", run: ["opencode"] },
+      { key: "codex", name: "Codex", run: ["codex"] },
+    ]);
+    expect(startAgents(known.slice(2))).toEqual([]);
   });
 
   it("asks Claude Code through the plugin's command and others through the copied skill", () => {

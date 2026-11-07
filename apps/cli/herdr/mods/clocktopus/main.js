@@ -57,7 +57,7 @@ import {
   resumeSpace,
   spaceFolder,
   STAGES,
-  startAgent,
+  startAgents,
   startPrompt,
   tabRenames,
   terminalOf,
@@ -316,25 +316,85 @@ function startWork(ctx, agent, target) {
   });
 }
 
-// The popup a To do task in a goal opens: start-work on the task alone, or on the goal.
+// One Start button per agent, the default first and solid.
+const startButtons = (id, starters, t, onPick) =>
+  starters.map((agent, i) =>
+    button(`${id}-${agent.key}`, agent.name, t, () => onPick(agent), {
+      primary: i === 0,
+      small: true,
+      icon: "play",
+    }),
+  );
+
+// What a To do task can start work on: the task, and its goal when it is in one.
+const startTargets = (task, goal) => [
+  {
+    id: "task",
+    label: `This task · ${task.key}`,
+    detail: task.title ?? "",
+    target: task.key,
+  },
+  ...(goal
+    ? [
+        {
+          id: "goal",
+          label: `The whole goal · ${goal.ref}`,
+          detail: `${goal.title}${goal.count ? ` · ${goal.count} open` : ""}`,
+          target: goal.ref,
+        },
+      ]
+    : []),
+];
+const START_POPUP_WIDTH = 320;
+// The header line and padding, then each option: its label and detail lines, and with several
+// agents a 22px row of their buttons; each with headroom for a larger `ui_font_size`.
+const startPopupHeight = (targets, starterCount) =>
+  44 + (starterCount > 1 ? 92 : 56) * targets;
+
+// The popup the play button opens when there is a choice: start-work on the task or its goal,
+// in any of the agents installed. With one agent, each option is itself the click.
 function startPopup() {
   const t = theme();
-  const { ctx, agent, task, goal, overlay } = blockProps();
-  const option = (id, label, detail, target) =>
+  const { ctx, starters, task, goal, overlay } = blockProps();
+  const only = starters.length === 1 ? starters[0] : null;
+  const start = (agent, target) => {
+    closeOverlay(overlay);
+    startWork(ctx, agent, target);
+  };
+  const option = ({ id, label, detail, target }) =>
     v_flex()
-      .id(id)
+      .id(`start-${id}`)
       .px(10)
-      .py(7)
+      .py(6)
+      .gap(5)
       .rounded(6)
-      .cursor_pointer()
-      .hover((s) => s.bg(t.hover))
-      .on_click(() => {
-        closeOverlay(overlay);
-        startWork(ctx, agent, target);
-      })
+      .when(Boolean(only), (el) =>
+        el
+          .cursor_pointer()
+          .hover((s) => s.bg(t.hover))
+          .on_click(() => start(only, target)),
+      )
       .child(div().text_size(S().body).font_medium().child(label))
-      .child(
-        div().truncate().text_size(S().label).text_color(t.muted).child(detail),
+      .when(Boolean(detail), (el) =>
+        el.child(
+          div()
+            .truncate()
+            .text_size(S().label)
+            .text_color(t.muted)
+            .child(detail),
+        ),
+      )
+      .when(!only, (el) =>
+        el.child(
+          h_flex()
+            .gap(6)
+            .flex_wrap()
+            .children(
+              startButtons(`start-${id}`, starters, t, (agent) =>
+                start(agent, target),
+              ),
+            ),
+        ),
       );
   return v_flex()
     .size_full()
@@ -349,24 +409,9 @@ function startPopup() {
         .pb(2)
         .text_size(S().label)
         .text_color(t.muted)
-        .child(`Start work with ${agent.name}`),
+        .child(only ? `Start work with ${only.name}` : "Start work"),
     )
-    .child(
-      option(
-        "start-task",
-        `This task · ${task.key}`,
-        task.title ?? "",
-        task.key,
-      ),
-    )
-    .child(
-      option(
-        "start-goal",
-        `The whole goal · ${goal.ref}`,
-        `${goal.title}${goal.count ? ` · ${goal.count} open` : ""}`,
-        goal.ref,
-      ),
-    );
+    .children(startTargets(task, goal).map(option));
 }
 
 function toggle() {
@@ -419,8 +464,8 @@ export default class Clocktopus extends View {
     this.resumed = new Set();
     // Running session id to the Herdr terminal its process is in, when it is in one.
     this.hosts = new Map();
-    // The agent To do tasks start with on the space's machine (`startAgent`), or null.
-    this.starter = null;
+    // The agents To do tasks can start with on the space's machine (`startAgents`), default first.
+    this.starters = [];
     this.sessionIds = {};
     // What each place showed last, by `<machine>|<folder>`, so switching back shows it at once.
     this.cache = new Map();
@@ -550,10 +595,10 @@ export default class Clocktopus extends View {
           this.hosts = await this.findHosts(found);
           const known = await knownAgents({ on: ctx.on }).catch(() => []);
           if (token !== this.token) return;
-          this.starter = startAgent(known);
+          this.starters = startAgents(known);
         }
         this.cache.set(ctx.key, {
-          starter: this.starter,
+          starters: this.starters,
           board: this.board,
           found: this.found,
           loadedAt: this.loadedAt,
@@ -716,12 +761,12 @@ export default class Clocktopus extends View {
       this.loading = false;
       this.refreshDue = false;
       // Another place may be another project, in another organisation or on another machine:
-      // its board, sessions and starter are its own. The open row, collapsed groups and Show more
+      // its board, sessions and starters are its own. The open row, collapsed groups and Show more
       // carry over, so a space at another checkout of the same project keeps the task open.
       const last = key ? this.cache.get(key) : null;
       this.board = last?.board ?? null;
       this.found = last?.found ?? new Map();
-      this.starter = last?.starter ?? null;
+      this.starters = last?.starters ?? [];
       this.loadedAt = last?.loadedAt ?? 0;
       if (ctx) later(cx, (cx) => this.refresh(cx));
     }
@@ -1358,37 +1403,46 @@ export default class Clocktopus extends View {
             ),
           ),
       )
-      .when(task.stage === "created" && Boolean(this.starter), (el) =>
-        el.child(
+      .when(task.stage === "created" && this.starters.length > 0, (el) => {
+        const starters = this.starters;
+        const choice = Boolean(task.goal) || starters.length > 1;
+        return el.child(
           iconButton(
             `start-${task.key}`,
             "play",
             task.goal
               ? `Start work on ${task.key} or its goal ${task.goal.ref}`
-              : `Start work on ${task.key} with ${this.starter.name}`,
+              : choice
+                ? `Start work on ${task.key} in ${starters.map((a) => a.name).join(", ")}`
+                : `Start work on ${task.key} with ${starters[0].name}`,
             t,
             () => {
-              if (!task.goal) return startWork(ctx, this.starter, task.key);
-              const goal = this.board.goals.find(
-                (g) => g.ref === task.goal.ref,
-              );
+              if (!choice) return startWork(ctx, starters[0], task.key);
+              const goal = task.goal
+                ? {
+                    ...task.goal,
+                    count:
+                      this.board.goals.find((g) => g.ref === task.goal.ref)
+                        ?.keys.length ?? null,
+                  }
+                : null;
               openOverlay({
                 mod: "clocktopus",
                 kind: "popup",
-                width: 300,
-                height: 150,
+                width: START_POPUP_WIDTH,
+                height: startPopupHeight(goal ? 2 : 1, starters.length),
                 props: {
                   role: "start",
                   ctx,
-                  agent: this.starter,
+                  starters,
                   task: { key: task.key, title: task.title },
-                  goal: { ...task.goal, count: goal?.keys.length ?? null },
+                  goal,
                 },
               });
             },
           ),
-        ),
-      )
+        );
+      })
       .when(Boolean(task.pageUrl), (el) =>
         el.child(
           iconButton(
@@ -1624,7 +1678,8 @@ export default class Clocktopus extends View {
             ),
           ),
       );
-    if (task.stage === "created" && this.starter)
+    if (task.stage === "created" && this.starters.length === 1) {
+      const [agent] = this.starters;
       parts.push(
         h_flex()
           .px(4)
@@ -1635,12 +1690,12 @@ export default class Clocktopus extends View {
               `start-task-${task.key}`,
               `Start ${task.key}`,
               t,
-              () => startWork(ctx, this.starter, task.key),
+              () => startWork(ctx, agent, task.key),
               {
                 primary: true,
                 small: true,
                 icon: "play",
-                tip: `start-work with ${this.starter.name}`,
+                tip: `start-work with ${agent.name}`,
               },
             ),
           )
@@ -1650,7 +1705,7 @@ export default class Clocktopus extends View {
                 `start-goal-${task.key}`,
                 `Start goal ${task.goal.ref}`,
                 t,
-                () => startWork(ctx, this.starter, task.goal.ref),
+                () => startWork(ctx, agent, task.goal.ref),
                 {
                   small: true,
                   icon: "play",
@@ -1660,6 +1715,42 @@ export default class Clocktopus extends View {
             ),
           ),
       );
+    } else if (task.stage === "created" && this.starters.length > 1) {
+      const targets = [
+        { id: "task", label: `Start ${task.key} in`, target: task.key },
+        ...(task.goal
+          ? [
+              {
+                id: "goal",
+                label: `Start goal ${task.goal.ref} in`,
+                target: task.goal.ref,
+              },
+            ]
+          : []),
+      ];
+      parts.push(
+        v_flex()
+          .px(4)
+          .gap(6)
+          .children(
+            targets.map(({ id, label, target }) =>
+              h_flex()
+                .gap(6)
+                .flex_wrap()
+                .items_center()
+                .child(note(t, label))
+                .children(
+                  startButtons(
+                    `start-${id}-${task.key}`,
+                    this.starters,
+                    t,
+                    (agent) => startWork(ctx, agent, target),
+                  ),
+                ),
+            ),
+          ),
+      );
+    }
 
     return v_flex().px(6).pb(8).gap(8).children(parts);
   }

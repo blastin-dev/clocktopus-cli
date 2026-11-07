@@ -373,18 +373,17 @@ export const mostUrgent = (agents) =>
     (a, b) => (URGENCY[a.status] ?? 4) - (URGENCY[b.status] ?? 4),
   )[0] ?? null;
 
-// The agents the panel starts work with, in order of preference, by their key in Herdr's
-// program table (`knownAgents()`): the first one installed on the space's machine.
+// The agents the panel starts work with, by their key in Herdr's program table
+// (`knownAgents()`): those with the start-work skill (`startPrompt`).
 const START_AGENTS = ["claude", "codex", "opencode"];
 
+// The start agents installed on the space's machine, in `knownAgents()`'s order (most picked
+// first), so the first is the default.
 /** @param {{ key: string, name: string, run: string[], installed: boolean }[]} known */
-export function startAgent(known) {
-  for (const key of START_AGENTS) {
-    const agent = known.find((a) => a.key === key && a.installed);
-    if (agent) return { key: agent.key, name: agent.name, run: agent.run };
-  }
-  return null;
-}
+export const startAgents = (known) =>
+  known
+    .filter((a) => a.installed && START_AGENTS.includes(a.key))
+    .map((a) => ({ key: a.key, name: a.name, run: a.run }));
 
 // The first message that has the agent start work on `target`, a task key or a goal ref,
 // through the start-work skill: the Clocktopus plugin's command in Claude Code, the skill
