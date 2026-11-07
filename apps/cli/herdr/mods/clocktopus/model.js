@@ -143,7 +143,7 @@ export const labelledTasks = (terminals) => labelled(terminals, TASK_LABEL);
 // A Herdr agent with where its pane is: `agents()` joined to `panes()`, and the agent's own
 // session id when the panel found one (`sessionIds`, by terminal address).
 /**
- * @param {{ address: string, pane: string, space: string, space_name?: string, tab_name?: string, status: string, app: string | null, program?: { name: string }, focused: boolean }[]} agents
+ * @param {{ address: string, pane: string, space: string, tab?: string, space_name?: string, tab_name?: string, status: string, app: string | null, program?: { name: string }, focused: boolean }[]} agents
  * @param {{ pane: string, cwd: string | null, branch: string | null }[]} panes
  * @param {Record<string, string>} sessionIds
  * @param {Record<string, string>} [taskLabels] the task each terminal's label names
@@ -156,6 +156,7 @@ export function liveAgents(agents, panes, sessionIds, taskLabels = {}) {
       address: agent.address,
       pane: agent.pane,
       space: agent.space,
+      tab: agent.tab ?? null,
       where: [agent.space_name, agent.tab_name].filter(Boolean).join(" › "),
       spaceName: agent.space_name ?? null,
       tabName: agent.tab_name ?? null,
@@ -208,6 +209,50 @@ export function agentsByTask(tasks, live) {
   return byTask;
 }
 
+// The live agents the window shows: those in its shown tab, and the one an agent block shows.
+/**
+ * @param {ReturnType<typeof liveAgents>} live
+ * @param {{ tab: string, agent?: string | null } | null} view what `focused()` reports
+ */
+export const inView = (live, view) =>
+  new Set(
+    view
+      ? live
+          .filter((a) => a.tab === view.tab || a.address === view.agent)
+          .map((a) => a.address)
+      : [],
+  );
+
+// The tasks a live agent's session worked on before it moved on: the board lists the session on
+// them, but the agent counts toward another task now. Each task gets those agents with `now`, the
+// task `agentsByTask` puts the agent on (null when it is on none the board lists).
+/**
+ * @param {{ key: string, sessions: { sessionId: string }[] }[]} tasks
+ * @param {ReturnType<typeof agentsByTask>} byTask
+ * @param {ReturnType<typeof liveAgents>} live
+ */
+export function movedOn(tasks, byTask, live) {
+  /** @type {Map<string, string>} */
+  const now = new Map();
+  for (const [key, agents] of byTask)
+    for (const agent of agents) now.set(agent.address, key);
+  /** @type {Map<string, { agent: ReturnType<typeof liveAgents>[number], now: string | null }[]>} */
+  const moved = new Map();
+  for (const agent of live) {
+    if (!agent.sessionId) continue;
+    const current = now.get(agent.address) ?? null;
+    for (const task of tasks) {
+      if (task.key === current) continue;
+      if (!task.sessions.some((s) => s.sessionId === agent.sessionId)) continue;
+      moved.set(task.key, [
+        ...(moved.get(task.key) ?? []),
+        { agent, now: current },
+      ]);
+    }
+  }
+  return moved;
+}
+
 // The agent a click on the task brings up: the one whose session is the task's, else the only
 // one on its branch. Null when that leaves a choice, so the row lists them instead.
 /** @param {ReturnType<typeof agentsByTask> extends Map<string, infer V> ? V : never} agents */
@@ -216,6 +261,87 @@ export function clickTarget(agents) {
   if (bySession.length === 1) return bySession[0];
   if (bySession.length === 0 && agents.length === 1) return agents[0];
   return null;
+}
+
+// The agent a click on the row focuses: `clickTarget`'s, unless it is already in view, where
+// focusing it changes nothing on screen and the click opens the row instead.
+/**
+ * @template {{ address: string }} A
+ * @param {A | null | undefined} target
+ * @param {Set<string>} shown `inView`
+ */
+export const focusTarget = (target, shown) =>
+  target && !shown.has(target.address) ? target : null;
+
+// The first session the board has working on the task that isn't a Herdr agent the panel shows
+// elsewhere: while `away`'s session is still the task's current one, a session of yours working
+// on it can be that agent, so yours are skipped then.
+/**
+ * @template {{ mine: boolean }} W
+ * @param {{ working: W[], sessions: { sessionId: string, current: boolean }[] }} task
+ * @param {{ agent: { sessionId: string | null } } | null} away the first of `movedOn` for the task
+ * @returns {W | null}
+ */
+export function workingElsewhere(task, away) {
+  const lagging =
+    Boolean(away?.agent.sessionId) &&
+    task.sessions.some(
+      (s) => s.sessionId === away?.agent.sessionId && s.current,
+    );
+  return task.working.find((w) => !(w.mine && lagging)) ?? null;
+}
+
+// A tab name the panel gives: a task key or goal ref, or a goal ref then the task its run is on.
+const PANEL_TAB_NAME =
+  /^(?:([A-Za-z][A-Za-z0-9]*-\d+) · )?([A-Za-z][A-Za-z0-9]*-\d+)$/;
+
+// The name a tab takes when its agent is on task `key`, keeping a goal ref the tab was opened
+// for in front. Null leaves the tab as it is: a name the panel doesn't give (a number, one a
+// person chose), or the name it already has.
+/**
+ * @param {string | null} name
+ * @param {string} key
+ * @param {string[]} goalRefs the board's goals
+ */
+export function followedTabName(name, key, goalRefs) {
+  const match = PANEL_TAB_NAME.exec(name ?? "");
+  if (!match) return null;
+  const goal = match[1] ?? (goalRefs.includes(match[2]) ? match[2] : null);
+  const next = goal && goal !== key ? `${goal} · ${key}` : key;
+  return next === name ? null : next;
+}
+
+// The tabs to rename, as [tab id, name]: each tab whose agents are on one task by their label or
+// their session (`agentsByTask`), and whose name `followedTabName` changes. A tab whose agents are
+// on several tasks, or only matched by branch, keeps its name.
+/**
+ * @param {ReturnType<typeof liveAgents>} live
+ * @param {ReturnType<typeof agentsByTask>} byTask
+ * @param {string[]} goalRefs
+ */
+export function tabRenames(live, byTask, goalRefs) {
+  /** @type {Map<string, string>} */
+  const taskOf = new Map();
+  for (const [key, agents] of byTask)
+    for (const agent of agents)
+      if (agent.via !== "branch") taskOf.set(agent.address, key);
+  /** @type {Map<string, { name: string | null, keys: Set<string> }>} */
+  const tabs = new Map();
+  for (const agent of live) {
+    if (!agent.tab) continue;
+    const tab = tabs.get(agent.tab) ?? { name: agent.tabName, keys: new Set() };
+    const key = taskOf.get(agent.address);
+    if (key) tab.keys.add(key);
+    tabs.set(agent.tab, tab);
+  }
+  /** @type {[string, string][]} */
+  const renames = [];
+  for (const [id, { name, keys }] of tabs) {
+    if (keys.size !== 1) continue;
+    const next = followedTabName(name, [...keys][0], goalRefs);
+    if (next) renames.push([id, next]);
+  }
+  return renames;
 }
 
 // The board as the panel shows it: a To do task an agent has taken up (by its label or its

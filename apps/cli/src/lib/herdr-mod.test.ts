@@ -19,14 +19,18 @@ import {
   clickTarget,
   environmentBanner,
   filterTasks,
+  focusTarget,
+  followedTabName,
   forkArgv,
   goalKeys,
+  inView,
   isBoardHint,
   labelledSessions,
   labelledTasks,
   liveAgents,
   localSessionsScript,
   mostUrgent,
+  movedOn,
   parseBoard,
   parseLocalSessions,
   pollEvery,
@@ -36,8 +40,10 @@ import {
   spaceFolder,
   startAgent,
   startPrompt,
+  tabRenames,
   terminalOf,
   withAgentStages,
+  workingElsewhere,
 } from "../../herdr/mods/clocktopus/model.js";
 import { HERDR_SESSION_LABEL, HERDR_TASK_LABEL } from "./herdr-terminal.js";
 import { BOARD_TOPICS } from "./realtime-watch.js";
@@ -78,11 +84,17 @@ function task(key: string, overrides: Partial<BoardTask> = {}): BoardTask {
 
 const program = { name: "Claude Code" };
 
-function herdrAgent(address: string, pane: string, status = "working") {
+function herdrAgent(
+  address: string,
+  pane: string,
+  status = "working",
+  tab = "tab-1",
+) {
   return {
     address,
     pane,
     space: "space-1",
+    tab,
     status,
     app: "claude-code",
     program,
@@ -295,6 +307,136 @@ describe("agentsByTask and clickTarget", () => {
 
     expect(clickTarget(byTask.get("ACME-2") ?? [])?.address).toBe("t3");
     expect(byTask.has("ACME-3")).toBe(false);
+  });
+});
+
+describe("a session tied to several tasks", () => {
+  const panes = [
+    { pane: "p1", cwd: "/home/dana/acme-portal", branch: "dana/acme-1-export" },
+    { pane: "p2", cwd: "/home/dana/acme-wt", branch: "dana/acme-4-totals" },
+  ];
+  const tasks = [
+    task("ACME-1", {
+      sessions: [session({ sessionId: "session-1", current: false })],
+    }),
+    task("ACME-2", {
+      sessions: [session({ sessionId: "session-1", current: true })],
+    }),
+    task("ACME-3", {
+      sessions: [session({ sessionId: "session-1", current: false })],
+    }),
+    task("ACME-4"),
+  ];
+  const live = liveAgents(
+    [herdrAgent("t1", "p1"), herdrAgent("t2", "p2", "idle", "tab-2")],
+    panes,
+    { t1: "session-1" },
+  );
+  const byTask = agentsByTask(tasks, live);
+
+  it("puts the agent on its current task, and marks the others as moved on from", () => {
+    const moved = movedOn(tasks, byTask, live);
+
+    expect(byTask.get("ACME-2")?.map((agent) => agent.address)).toEqual(["t1"]);
+    expect(
+      [...moved].map(([key, ms]) => [
+        key,
+        ms.map((m) => `${m.agent.address}>${m.now}`),
+      ]),
+    ).toEqual([
+      ["ACME-1", ["t1>ACME-2"]],
+      ["ACME-3", ["t1>ACME-2"]],
+    ]);
+  });
+
+  it("counts a task the board still calls current as moved on from once the task label names another", () => {
+    const labelled = liveAgents(
+      [herdrAgent("t1", "p1")],
+      panes,
+      { t1: "session-1" },
+      {
+        t1: "ACME-3",
+      },
+    );
+    const moved = movedOn(tasks, agentsByTask(tasks, labelled), labelled);
+
+    expect([...moved.keys()]).toEqual(["ACME-1", "ACME-2"]);
+    expect(moved.get("ACME-2")?.[0]?.now).toBe("ACME-3");
+  });
+
+  it("shows the agents in the window's shown tab, and the one an agent block shows", () => {
+    expect([...inView(live, { tab: "tab-1", agent: null })]).toEqual(["t1"]);
+    expect([...inView(live, { tab: "tab-9", agent: "t2" })]).toEqual(["t2"]);
+    expect([...inView(live, null)]).toEqual([]);
+  });
+
+  it("reads your session as the moved-on agent only while the board still has it current there", () => {
+    const yours = {
+      agent: "codex_cli",
+      userName: "Dana",
+      mine: true,
+      lastActivityAt: null,
+    };
+    const away = { agent: { sessionId: "session-1" } };
+    const lagging = task("ACME-5", {
+      working: [yours],
+      sessions: [session({ sessionId: "session-1", current: true })],
+    });
+    const caughtUp = task("ACME-5", {
+      working: [yours],
+      sessions: [session({ sessionId: "session-1", current: false })],
+    });
+
+    expect(workingElsewhere(lagging, away)).toBeNull();
+    expect(workingElsewhere(caughtUp, away)).toBe(yours);
+    expect(workingElsewhere(lagging, null)).toBe(yours);
+  });
+
+  it("goes to the task's agent on a click, and leaves it to open the row when that agent is in view", () => {
+    const target = clickTarget(byTask.get("ACME-2") ?? []);
+
+    expect(focusTarget(target, inView(live, { tab: "tab-2" }))?.address).toBe(
+      "t1",
+    );
+    expect(focusTarget(target, inView(live, { tab: "tab-1" }))).toBeNull();
+  });
+});
+
+describe("tabs following their agent's task", () => {
+  it("renames a tab named after a task or a goal, and leaves a number or a person's name alone", () => {
+    expect(followedTabName("ACME-1", "ACME-2", [])).toBe("ACME-2");
+    expect(followedTabName("G-3", "ACME-2", ["G-3"])).toBe("G-3 · ACME-2");
+    expect(followedTabName("G-3 · ACME-1", "ACME-2", [])).toBe("G-3 · ACME-2");
+    expect(followedTabName("ACME-2", "ACME-2", [])).toBeNull();
+    expect(followedTabName("2", "ACME-2", [])).toBeNull();
+    expect(followedTabName("fix login", "ACME-2", [])).toBeNull();
+  });
+
+  it("follows the label or the session, never a branch alone or a tab split across tasks", () => {
+    const tasks = [
+      task("ACME-1"),
+      task("ACME-2", {
+        sessions: [session({ sessionId: "session-2", current: true })],
+      }),
+    ];
+    const live = liveAgents(
+      [
+        { ...herdrAgent("t1", "p1", "working", "tab-1"), tab_name: "ACME-9" },
+        { ...herdrAgent("t2", "p2", "working", "tab-2"), tab_name: "ACME-9" },
+        { ...herdrAgent("t3", "p3", "working", "tab-3"), tab_name: "ACME-9" },
+        { ...herdrAgent("t4", "p4", "working", "tab-3"), tab_name: "ACME-9" },
+      ],
+      [
+        { pane: "p2", cwd: "/x", branch: "dana/acme-1-export" },
+        { pane: "p4", cwd: "/x", branch: "dana/acme-1-export" },
+      ],
+      { t1: "session-2", t3: "session-2" },
+      { t4: "ACME-1" },
+    );
+
+    expect(tabRenames(live, agentsByTask(tasks, live), [])).toEqual([
+      ["tab-1", "ACME-2"],
+    ]);
   });
 });
 
