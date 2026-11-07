@@ -71,7 +71,7 @@ const TODO_LOADED = 200;
 // Where the CLI is usually installed, for a desktop app started without the login shell's PATH.
 const PATHS =
   'PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$HOME/.local/share/pnpm:$HOME/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH';
-const STAGE_ORDER = ["in_review", "in_progress", "created"];
+const STAGE_ORDER = ["merged", "in_review", "in_progress", "created"];
 const MARK = "mods/clocktopus/mark.png";
 // Where `clocktopus realtime watch` keeps its files on this computer.
 const realtimeDir = () => `${home()}/.clocktopus/realtime`;
@@ -427,7 +427,8 @@ export default class Clocktopus extends View {
     this.open = null;
     // The name each tab was last renamed to, so a rename is asked for once.
     this.renamed = new Map();
-    this.collapsed = new Set();
+    // Ready to ship starts collapsed: its tasks are there to go back to, not to work through.
+    this.collapsed = new Set(["merged"]);
     this.query = "";
     this.allTodo = false;
     this.filter = InputState.new({
@@ -901,7 +902,14 @@ export default class Clocktopus extends View {
         stage === "created" && !narrowed && !this.allTodo
           ? matching.slice(0, TODO_SHOWN)
           : matching;
-      const total = stage === "created" ? todoTotal : counts[stage];
+      const total =
+        stage === "created"
+          ? todoTotal
+          : stage === "merged"
+            ? (board.mergedTotal ?? 0)
+            : counts[stage];
+      // An older CLI or server lists no Ready to ship tasks, and an empty one is noise.
+      if (stage === "merged" && total === 0) continue;
       // Tasks an agent is working on now; an idle or finished agent isn't cooking.
       const cookingCount = matching.filter((task) =>
         (byTask.get(task.key) ?? []).some(
@@ -1018,6 +1026,19 @@ export default class Clocktopus extends View {
               note(
                 t,
                 `The oldest ${todoTotal - counts.created} are on the Work page.`,
+              ),
+            ),
+        );
+      }
+      if (stage === "merged" && !collapsed && total > counts.merged) {
+        sections.push(
+          div()
+            .px(14)
+            .pb(6)
+            .child(
+              note(
+                t,
+                `The ${total - counts.merged} merged longer ago are on the Work page.`,
               ),
             ),
         );
@@ -1760,7 +1781,9 @@ export default class Clocktopus extends View {
       : null;
     const inFlight =
       board?.status === "ok"
-        ? board.tasks.filter((x) => x.stage !== "created").length
+        ? board.tasks.filter(
+            (x) => x.stage === "in_progress" || x.stage === "in_review",
+          ).length
         : null;
     const text =
       !ctx || !age

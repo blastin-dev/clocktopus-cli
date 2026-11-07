@@ -165,10 +165,12 @@ clocktopus tasks [--json] [--repository <url>] [--org <id>] [--limit <n>]
 ```
 
 The open tasks of the Clocktopus project this checkout's `origin` belongs to,
-grouped as To do, In progress and In review, with the agents working on each
-now. To do lists the project's active goals' tasks in goal order, then the
-newest, up to `--limit` (30 by default). In progress leaves out a task
-nothing has touched for 30 days, unless an agent is working on it.
+grouped as To do, In progress, In review and Ready to ship, with the agents
+working on each now. To do lists the project's active goals' tasks in goal
+order, then the newest, up to `--limit` (30 by default). In progress leaves out
+a task nothing has touched for 30 days, unless an agent is working on it. Ready
+to ship lists the 20 tasks merged most recently and not yet delivered, so their
+sessions can still be found.
 
 `--json` prints one JSON object whatever happens, for programs that show the
 board: the board as `GET /api/agent/task-board`

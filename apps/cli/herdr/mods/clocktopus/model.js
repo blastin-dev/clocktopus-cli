@@ -5,6 +5,7 @@ export const STAGES = [
   ["created", "To do"],
   ["in_progress", "In progress"],
   ["in_review", "In review"],
+  ["merged", "Ready to ship"],
 ];
 
 // Agent-session providers Clocktopus records, as people name them.

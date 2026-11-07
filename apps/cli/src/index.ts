@@ -195,7 +195,7 @@ program
 program
   .command("tasks")
   .description(
-    "Show the open tasks of this checkout's Clocktopus project: to do, in progress and in review, with the agents working on them",
+    "Show the open tasks of this checkout's Clocktopus project: to do, in progress, in review and ready to ship, with the agents working on them",
   )
   .option("--json", "Print the board as JSON")
   .option(

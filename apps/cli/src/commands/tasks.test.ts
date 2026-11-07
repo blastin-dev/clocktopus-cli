@@ -23,7 +23,7 @@ function task(key: string, overrides: Partial<BoardTask> = {}): BoardTask {
   };
 }
 
-function board(tasks: BoardTask[], todoTotal = 0): OkBoard {
+function board(tasks: BoardTask[], todoTotal = 0, mergedTotal = 0): OkBoard {
   return {
     status: "ok",
     project: {
@@ -35,12 +35,13 @@ function board(tasks: BoardTask[], todoTotal = 0): OkBoard {
     },
     tasks,
     todoTotal,
+    mergedTotal,
     goals: [],
   };
 }
 
 describe("taskBoardPath", () => {
-  it("sends the remote, the to do limit and the organisation when given", () => {
+  it("sends the remote, the to do and ready to ship limits and the organisation when given", () => {
     expect(
       taskBoardPath({
         repositoryUrl: "git@github.com:acme-co/acme-portal.git",
@@ -48,7 +49,7 @@ describe("taskBoardPath", () => {
         todoLimit: 10,
       }),
     ).toBe(
-      "/api/agent/task-board?repositoryUrl=git%40github.com%3Aacme-co%2Facme-portal.git&todoLimit=10&orgId=org-1",
+      "/api/agent/task-board?repositoryUrl=git%40github.com%3Aacme-co%2Facme-portal.git&todoLimit=10&mergedLimit=20&orgId=org-1",
     );
   });
 });
@@ -98,6 +99,25 @@ describe("formatTaskBoard", () => {
         "https://app.example.test/acme/work/tasks",
       ].join("\n"),
     );
+  });
+
+  it("lists ready to ship after in review, saying how many it left out", () => {
+    const text = formatTaskBoard(
+      board([task("ACME-4", { stage: "merged" })], 0, 3),
+    );
+
+    expect(text).toContain(
+      [
+        "In review · 0",
+        "",
+        "Ready to ship · 1 of 3",
+        "  ACME-4     Task ACME-4",
+      ].join("\n"),
+    );
+  });
+
+  it("leaves out ready to ship when nothing is merged", () => {
+    expect(formatTaskBoard(board([]))).not.toContain("Ready to ship");
   });
 
   it("names the organisations to choose from", () => {

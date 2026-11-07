@@ -2,10 +2,10 @@
 
 A [Herdr](https://herdr.dev) layout with a Clocktopus panel beside your agents.
 Each space shows the tasks of the project its folder belongs to, in whichever
-of your organisations links that repository: in review, in progress and to do,
-which ones an agent is working on now, and a click to bring that agent into
-view, resume an earlier session from any machine Herdr reaches, or open the
-task in Clocktopus.
+of your organisations links that repository: ready to ship, in review, in
+progress and to do, which ones an agent is working on now, and a click to
+bring that agent into view, resume an earlier session from any machine Herdr
+reaches, or open the task in Clocktopus.
 
 ![Herdr + Clocktopus](preview.png)
 
