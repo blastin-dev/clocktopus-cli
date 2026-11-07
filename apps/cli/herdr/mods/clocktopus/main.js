@@ -852,7 +852,7 @@ export default class Clocktopus extends View {
           : matching;
       const total = stage === "created" ? todoTotal : counts[stage];
       // Tasks an agent is working on now; an idle or finished agent isn't cooking.
-      const cooking = matching.filter((task) =>
+      const cookingCount = matching.filter((task) =>
         (byTask.get(task.key) ?? []).some(
           (agent) => agent.status === "working",
         ),
@@ -887,7 +887,7 @@ export default class Clocktopus extends View {
                 `${label} · ${narrowed ? `${matching.length} of ${total}` : total}`,
               ),
           )
-          .when(cooking > 0, (el) =>
+          .when(cookingCount > 0, (el) =>
             el.child(
               h_flex()
                 .gap(5)
@@ -895,7 +895,7 @@ export default class Clocktopus extends View {
                 .text_size(S().label)
                 .text_color(cooking(t))
                 .child(dot(cooking(t), 6))
-                .child(`${cooking} cooking`),
+                .child(`${cookingCount} cooking`),
             ),
           ),
       );
@@ -1348,7 +1348,7 @@ export default class Clocktopus extends View {
         onClick: () => run("pane.focus", { pane: agent.pane }),
       });
     }
-    for (const w of task.working.filter((w) => !w.mine)) {
+    for (const w of task.working.filter((other) => !other.mine)) {
       items.push({
         marker: dot(cooking(t), 8, true),
         name: `${w.userName ?? "Someone"}'s ${agentName(w.agent)}`,
@@ -1359,7 +1359,9 @@ export default class Clocktopus extends View {
 
     const liveIds = new Set(Object.values(this.sessionIds));
     const quiet = [];
-    for (const s of task.sessions.filter((s) => !liveIds.has(s.sessionId))) {
+    for (const s of task.sessions.filter(
+      (session) => !liveIds.has(session.sessionId),
+    )) {
       const argv = resumeArgv(s);
       const where = this.found.get(s.sessionId);
       const hostOf = this.hosts.get(s.sessionId);
