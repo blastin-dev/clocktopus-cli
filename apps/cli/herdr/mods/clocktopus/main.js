@@ -59,6 +59,7 @@ import {
   STAGES,
   startAgents,
   startPrompt,
+  worktreeBranch,
   tabRenames,
   terminalOf,
   withAgentStages,
@@ -316,102 +317,137 @@ function startWork(ctx, agent, target) {
   });
 }
 
-// One Start button per agent, the default first and solid.
-const startButtons = (id, starters, t, onPick) =>
-  starters.map((agent, i) =>
-    button(`${id}-${agent.key}`, agent.name, t, () => onPick(agent), {
-      primary: i === 0,
-      small: true,
-      icon: "play",
-    }),
-  );
-
 // What a To do task can start work on: the task, and its goal when it is in one.
 const startTargets = (task, goal) => [
-  {
-    id: "task",
-    label: `This task · ${task.key}`,
-    detail: task.title ?? "",
-    target: task.key,
-  },
+  { id: "task", label: `Start ${task.key}`, target: task.key },
   ...(goal
     ? [
         {
           id: "goal",
-          label: `The whole goal · ${goal.ref}`,
-          detail: `${goal.title}${goal.count ? ` · ${goal.count} open` : ""}`,
+          label: `Start goal ${goal.ref}${goal.count ? ` · ${goal.count} open` : ""}`,
           target: goal.ref,
         },
       ]
     : []),
 ];
-const START_POPUP_WIDTH = 320;
-// The header line and padding, then each option: its label and detail lines, and with several
-// agents a 22px row of their buttons; each with headroom for a larger `ui_font_size`.
+const START_POPUP_WIDTH = 260;
+const START_ROW = 31;
+const START_HEADER = 28;
+// Herdr's new-tab menu: 5px padding, the New worktree row and a divider, then each target's
+// header and one row per agent, a divider between targets.
 const startPopupHeight = (targets, starterCount) =>
-  44 + (starterCount > 1 ? 92 : 56) * targets;
+  10 +
+  targets * (START_HEADER + starterCount * START_ROW) +
+  targets * 11 +
+  START_ROW;
 
-// The popup the play button opens when there is a choice: start-work on the task or its goal,
-// in any of the agents installed. With one agent, each option is itself the click.
-function startPopup() {
+const agentIcon = (agent, t) =>
+  !agent.icon
+    ? div().size(14).flex_none()
+    : agent.tint
+      ? svg(agent.icon).size(14).flex_none().text_color(t.foreground)
+      : image(agent.icon).size(14).flex_none();
+
+// The menu the play button opens, drawn like Herdr's new-tab menu: a new worktree for the task,
+// then start-work on the task, and on its goal, in each installed agent. Keys 1-9 start the task.
+function startPopup(handle) {
   const t = theme();
   const { ctx, starters, task, goal, overlay } = blockProps();
-  const only = starters.length === 1 ? starters[0] : null;
   const start = (agent, target) => {
     closeOverlay(overlay);
     startWork(ctx, agent, target);
   };
-  const option = ({ id, label, detail, target }) =>
-    v_flex()
-      .id(`start-${id}`)
-      .px(10)
-      .py(6)
-      .gap(5)
-      .rounded(6)
-      .when(Boolean(only), (el) =>
-        el
-          .cursor_pointer()
-          .hover((s) => s.bg(t.hover))
-          .on_click(() => start(only, target)),
-      )
-      .child(div().text_size(S().body).font_medium().child(label))
-      .when(Boolean(detail), (el) =>
-        el.child(
-          div()
-            .truncate()
-            .text_size(S().label)
-            .text_color(t.muted)
-            .child(detail),
-        ),
-      )
-      .when(!only, (el) =>
-        el.child(
-          h_flex()
-            .gap(6)
-            .flex_wrap()
-            .children(
-              startButtons(`start-${id}`, starters, t, (agent) =>
-                start(agent, target),
-              ),
-            ),
-        ),
+  const branch = worktreeBranch(task);
+  // Herdr's worktree dialog, given a branch, checks it out in ~/.herdr/worktrees/<repo>/ (a new
+  // branch from the space's HEAD) and opens it as a new space with a terminal.
+  const newWorktree = () => {
+    closeOverlay(overlay);
+    openOverlay({
+      mod: "worktree",
+      kind: "dialog",
+      width: 460,
+      height: 280,
+      props: {
+        space: ctx.space,
+        folder: ctx.folder || undefined,
+        action: "new",
+        branch,
+      },
+    });
+  };
+  const line = (id, lead, name, hint, onClick) =>
+    h_flex()
+      .id(id)
+      .h(START_ROW)
+      .px(9)
+      .gap(10)
+      .flex_none()
+      .items_center()
+      .rounded(7)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.selected))
+      .on_click(onClick)
+      .child(lead)
+      .child(div().flex_1().min_w(0).truncate().child(name))
+      .child(
+        div()
+          .flex_none()
+          .text_size(11)
+          .text_color(t.dim ?? t.muted)
+          .child(hint),
       );
+  const row = (id, agent, target, hint) =>
+    line(id, agentIcon(agent, t), agent.name, hint, () =>
+      start(agent, target),
+    );
+  const divider = () => div().h(1).mx(4).my(5).bg(t.border);
+  const sections = startTargets(task, goal).flatMap(
+    ({ id, label, target }, i) => [
+      ...(i > 0 ? [divider()] : []),
+      div()
+        .h(START_HEADER)
+        .px(9)
+        .pt(8)
+        .pb(4)
+        .truncate()
+        .text_size(11)
+        .text_color(t.dim ?? t.muted)
+        .child(label),
+      ...starters.map((agent, n) =>
+        row(
+          `start-${id}-${agent.key}`,
+          agent,
+          target,
+          id === "task" && n < 9 ? String(n + 1) : "",
+        ),
+      ),
+    ],
+  );
   return v_flex()
+    .id("clocktopus-start")
     .size_full()
-    .p(6)
-    .gap(2)
+    .p(5)
     .bg(t.popover)
     .text_color(t.foreground)
+    .text_size(12.8)
+    .track_focus(handle)
+    .on_key_down((e) => {
+      if (e.modifiers.control || e.modifiers.platform || e.modifiers.alt)
+        return;
+      const agent = /^[1-9]$/.test(e.key) ? starters[Number(e.key) - 1] : null;
+      if (agent) start(agent, task.key);
+    })
     .child(
-      div()
-        .px(10)
-        .pt(4)
-        .pb(2)
-        .text_size(S().label)
-        .text_color(t.muted)
-        .child(only ? `Start work with ${only.name}` : "Start work"),
+      line(
+        "start-worktree",
+        icon("branch", 14, t.foreground),
+        "New worktree",
+        branch,
+        newWorktree,
+      ).tooltip(`Check out ${branch} in a new worktree and open a terminal there`),
     )
-    .children(startTargets(task, goal).map(option));
+    .child(divider())
+    .children(sections);
 }
 
 function toggle() {
@@ -448,7 +484,12 @@ function toggle() {
 export default class Clocktopus extends View {
   init(_props, cx) {
     this.role = blockProps()?.role ?? "panel";
-    if (this.role === "toggle" || this.role === "start") return;
+    if (this.role === "toggle") return;
+    if (this.role === "start") {
+      this.handle = cx.focus_handle();
+      this.handle.focus();
+      return;
+    }
     this.handle = cx.focus_handle();
     this.ctx = null;
     this.ctxKey = null;
@@ -749,7 +790,7 @@ export default class Clocktopus extends View {
 
   render(cx) {
     if (this.role === "toggle") return toggle();
-    if (this.role === "start") return startPopup();
+    if (this.role === "start") return startPopup(this.handle);
     const t = theme();
 
     const ctx = this.context(),
@@ -1405,19 +1446,13 @@ export default class Clocktopus extends View {
       )
       .when(task.stage === "created" && this.starters.length > 0, (el) => {
         const starters = this.starters;
-        const choice = Boolean(task.goal) || starters.length > 1;
         return el.child(
           iconButton(
             `start-${task.key}`,
             "play",
-            task.goal
-              ? `Start work on ${task.key} or its goal ${task.goal.ref}`
-              : choice
-                ? `Start work on ${task.key} in ${starters.map((a) => a.name).join(", ")}`
-                : `Start work on ${task.key} with ${starters[0].name}`,
+            `Start work on ${task.key}${task.goal ? ` or its goal ${task.goal.ref}` : ""}, or open a worktree for it`,
             t,
             () => {
-              if (!choice) return startWork(ctx, starters[0], task.key);
               const goal = task.goal
                 ? {
                     ...task.goal,
@@ -1654,7 +1689,6 @@ export default class Clocktopus extends View {
             items.map((item, i) => listRow(t, { ...item, first: i === 0 })),
           ),
       );
-    else parts.push(note(t, "No agent session has worked on it yet.").px(4));
     if (alsoOn.length)
       parts.push(
         h_flex()
@@ -1678,80 +1712,6 @@ export default class Clocktopus extends View {
             ),
           ),
       );
-    if (task.stage === "created" && this.starters.length === 1) {
-      const [agent] = this.starters;
-      parts.push(
-        h_flex()
-          .px(4)
-          .gap(6)
-          .flex_wrap()
-          .child(
-            button(
-              `start-task-${task.key}`,
-              `Start ${task.key}`,
-              t,
-              () => startWork(ctx, agent, task.key),
-              {
-                primary: true,
-                small: true,
-                icon: "play",
-                tip: `start-work with ${agent.name}`,
-              },
-            ),
-          )
-          .when(Boolean(task.goal), (el) =>
-            el.child(
-              button(
-                `start-goal-${task.key}`,
-                `Start goal ${task.goal.ref}`,
-                t,
-                () => startWork(ctx, agent, task.goal.ref),
-                {
-                  small: true,
-                  icon: "play",
-                  tip: `start-work on every task of ${task.goal.title}`,
-                },
-              ),
-            ),
-          ),
-      );
-    } else if (task.stage === "created" && this.starters.length > 1) {
-      const targets = [
-        { id: "task", label: `Start ${task.key} in`, target: task.key },
-        ...(task.goal
-          ? [
-              {
-                id: "goal",
-                label: `Start goal ${task.goal.ref} in`,
-                target: task.goal.ref,
-              },
-            ]
-          : []),
-      ];
-      parts.push(
-        v_flex()
-          .px(4)
-          .gap(6)
-          .children(
-            targets.map(({ id, label, target }) =>
-              h_flex()
-                .gap(6)
-                .flex_wrap()
-                .items_center()
-                .child(note(t, label))
-                .children(
-                  startButtons(
-                    `start-${id}-${task.key}`,
-                    this.starters,
-                    t,
-                    (agent) => startWork(ctx, agent, target),
-                  ),
-                ),
-            ),
-          ),
-      );
-    }
-
     return v_flex().px(6).pb(8).gap(8).children(parts);
   }
 

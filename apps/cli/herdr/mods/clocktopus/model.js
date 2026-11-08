@@ -379,11 +379,31 @@ const START_AGENTS = ["claude", "codex", "opencode"];
 
 // The start agents installed on the space's machine, in `knownAgents()`'s order (most picked
 // first), so the first is the default.
-/** @param {{ key: string, name: string, run: string[], installed: boolean }[]} known */
+/** @param {{ key: string, name: string, run: string[], installed: boolean, icon?: string | null, tint?: boolean }[]} known */
 export const startAgents = (known) =>
   known
     .filter((a) => a.installed && START_AGENTS.includes(a.key))
-    .map((a) => ({ key: a.key, name: a.name, run: a.run }));
+    .map((a) => ({
+      key: a.key,
+      name: a.name,
+      run: a.run,
+      icon: a.icon ?? null,
+      tint: Boolean(a.tint),
+    }));
+
+// The branch a task's new worktree checks out: its key and the first words of its title,
+// lowercase, so Clocktopus attributes the branch's commits to the task.
+/** @param {{ key: string, title?: string | null }} task */
+export function worktreeBranch(task) {
+  const words = (task.title ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 6);
+  return [task.key.toLowerCase(), ...words].join("-");
+}
 
 // The first message that has the agent start work on `target`, a task key or a goal ref,
 // through the start-work skill: the Clocktopus plugin's command in Claude Code, the skill

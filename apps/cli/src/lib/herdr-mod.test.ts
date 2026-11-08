@@ -39,6 +39,7 @@ import {
   resumeSpace,
   spaceFolder,
   startAgents,
+  worktreeBranch,
   startPrompt,
   tabRenames,
   terminalOf,
@@ -728,7 +729,14 @@ describe("goal filters", () => {
 
 describe("starting work", () => {
   const known = [
-    { key: "opencode", name: "OpenCode", run: ["opencode"], installed: true },
+    {
+      key: "opencode",
+      name: "OpenCode",
+      run: ["opencode"],
+      installed: true,
+      icon: "icons/opencode.svg",
+      tint: true,
+    },
     { key: "codex", name: "Codex", run: ["codex"], installed: true },
     { key: "claude", name: "Claude Code", run: ["claude"], installed: false },
     { key: "pi", name: "Pi", run: ["pi"], installed: true },
@@ -736,10 +744,26 @@ describe("starting work", () => {
 
   it("offers the installed agents with the start-work skill, most picked first as Herdr lists them", () => {
     expect(startAgents(known)).toEqual([
-      { key: "opencode", name: "OpenCode", run: ["opencode"] },
-      { key: "codex", name: "Codex", run: ["codex"] },
+      {
+        key: "opencode",
+        name: "OpenCode",
+        run: ["opencode"],
+        icon: "icons/opencode.svg",
+        tint: true,
+      },
+      { key: "codex", name: "Codex", run: ["codex"], icon: null, tint: false },
     ]);
     expect(startAgents(known.slice(2))).toEqual([]);
+  });
+
+  it("names a task's worktree branch by its lowercase key and the first six words of its title", () => {
+    expect(
+      worktreeBranch({
+        key: "ACME-12",
+        title: "Export invoices as CSV, with the client's VAT number & totals",
+      }),
+    ).toBe("acme-12-export-invoices-as-csv-with-the");
+    expect(worktreeBranch({ key: "ACME-3", title: null })).toBe("acme-3");
   });
 
   it("asks Claude Code through the plugin's command and others through the copied skill", () => {
