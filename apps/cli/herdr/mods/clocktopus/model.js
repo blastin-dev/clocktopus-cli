@@ -581,6 +581,26 @@ export function goalKeys(goals, picked) {
   return chosen.length ? new Set(chosen.flatMap((goal) => goal.keys)) : null;
 }
 
+// Whether a pull request's `url` is a web page to open: Bitbucket's webhook can carry none, which
+// is stored as "".
+/** @param {string | null | undefined} url */
+export const isWebUrl = (url) => /^https?:\/\//i.test(url ?? "");
+
+// Git providers as people name them.
+const PROVIDER_NAMES = { github: "GitHub", bitbucket: "Bitbucket" };
+export const providerName = (provider) => PROVIDER_NAMES[provider] ?? provider;
+
+// The collapsed row's word on a task's pull requests (newest first, as the board lists them):
+// the newest that isn't closed, and how many others aren't. Null when every one is closed.
+/** @param {{ number: number, status: string }[] | undefined} pullRequests */
+export function pullRequestNote(pullRequests) {
+  const live = (pullRequests ?? []).filter((pr) => pr.status !== "closed");
+  const [newest] = live;
+  if (!newest) return null;
+  const more = live.length > 1 ? ` +${live.length - 1}` : "";
+  return `#${newest.number} ${newest.status}${more}`;
+}
+
 // "3m", "5h", "2d": how long ago `iso` was, from `now` (ms).
 export function ago(iso, now) {
   if (!iso) return "";

@@ -20,6 +20,7 @@ import {
   isRecord,
   isRefreshingCall,
   messageOf,
+  pullRequestColorOf,
   realtimeWatchPaths,
   revParseOf,
   sessionRows,
@@ -708,6 +709,35 @@ export const register: Register = (on) => {
               )}
             </Box>
             <Text wrap="wrap">{task.title ?? ""}</Text>
+          </Box>
+        )}
+        {task && task.pullRequests.length > 0 && (
+          <Box flexDirection="column" marginBottom={1}>
+            <Text bold>Pull requests</Text>
+            {task.pullRequests.map((pullRequest) => (
+              <Box
+                key={`${pullRequest.repository}#${pullRequest.number}`}
+                flexDirection="row"
+                gap={1}
+              >
+                <Box flexShrink={0}>
+                  <Button
+                    label={`#${pullRequest.number}`}
+                    onPress={(press) =>
+                      openUrl($, pullRequest.url, press.surface)
+                    }
+                  />
+                </Box>
+                <Box flexShrink={0}>
+                  <Text color={pullRequestColorOf(pullRequest.status)}>
+                    {pullRequest.status.padEnd(6)}
+                  </Text>
+                </Box>
+                <Box flexGrow={1} flexShrink={1}>
+                  <Text wrap="truncate-end">{pullRequest.title}</Text>
+                </Box>
+              </Box>
+            ))}
           </Box>
         )}
         {task && (

@@ -42,6 +42,7 @@ import {
   goalKeys,
   inView,
   isBoardHint,
+  isWebUrl,
   labelledSessions,
   labelledTasks,
   liveAgents,
@@ -52,6 +53,8 @@ import {
   parseLocalSessions,
   POLL_MS,
   pollEvery,
+  providerName,
+  pullRequestNote,
   resumeArgv,
   resumeChoice,
   resumeSpace,
@@ -59,11 +62,11 @@ import {
   STAGES,
   startAgents,
   startPrompt,
-  worktreeBranch,
   tabRenames,
   terminalOf,
   withAgentStages,
   workingElsewhere,
+  worktreeBranch,
 } from "./model.js";
 
 const PANEL = "clocktopus-panel"; // the layout node the toggle shows and hides; its hidden state is the layout's, so it survives space switches
@@ -198,8 +201,9 @@ const cooking = (t) => t.ansi3 || t.working;
 // The spinning ring at 10px draws an 8px circle, the size of `dot`.
 const spinner = (color) => icon("ring", 10, color).spin(900);
 
-// One line of an open row's list of agents and sessions: a marker, the agent, its state, and
-// then the space › tab it is in, or an action. With `onClick` the whole line is the click.
+// One line of an open row's list of agents, sessions or pull requests: a marker, a name, its
+// state, and then the space › tab it is in, or an action. With `onClick` the whole line is the
+// click; `external` marks one that opens a page outside Herdr.
 function listRow(
   t,
   {
@@ -214,6 +218,7 @@ function listRow(
     onClick,
     action,
     shown,
+    external,
   },
 ) {
   const go = Boolean(onClick);
@@ -235,7 +240,7 @@ function listRow(
         .on_mouse_down("left", stop)
         .on_click((_e, cx) => {
           cx.stop_propagation();
-          onClick();
+          onClick(cx);
         }),
     )
     .when(Boolean(tip), (el) => el.tooltip(tip))
@@ -275,7 +280,9 @@ function listRow(
           .child(div().flex_none().child(tag.tab)),
       ),
     )
-    .when(go, (el) => el.child(icon("arrow-right", 13, t.muted)))
+    .when(go, (el) =>
+      el.child(icon(external ? "external" : "arrow-right", 13, t.muted)),
+    )
     .when(Boolean(action), (el) => el.child(action));
 }
 
@@ -289,6 +296,19 @@ function find(node, id) {
     if (f) return f;
   }
   return null;
+}
+
+// How a pull request's status reads on a row, in the colours its providers give it: green
+// open, purple merged, and a hollow grey draft or closed one.
+function pullRequestLook(status, t) {
+  switch (status) {
+    case "open":
+      return { color: t.ansi2 || t.accent, hollow: false };
+    case "merged":
+      return { color: t.ansi5 || t.accent, hollow: false };
+    default:
+      return { color: t.muted, hollow: true };
+  }
 }
 
 // How a Herdr agent status reads on a row.
@@ -397,9 +417,7 @@ function startPopup(handle) {
           .child(hint),
       );
   const row = (id, agent, target, hint) =>
-    line(id, agentIcon(agent, t), agent.name, hint, () =>
-      start(agent, target),
-    );
+    line(id, agentIcon(agent, t), agent.name, hint, () => start(agent, target));
   const divider = () => div().h(1).mx(4).my(5).bg(t.border);
   const sections = startTargets(task, goal).flatMap(
     ({ id, label, target }, i) => [
@@ -444,7 +462,9 @@ function startPopup(handle) {
         "New worktree",
         branch,
         newWorktree,
-      ).tooltip(`Check out ${branch} in a new worktree and open a terminal there`),
+      ).tooltip(
+        `Check out ${branch} in a new worktree and open a terminal there`,
+      ),
     )
     .child(divider())
     .children(sections);
@@ -1327,6 +1347,8 @@ export default class Clocktopus extends View {
           `resume ${agentName(resumable.session.agent)} · ${ago(resumable.session.lastActivityAt, now)}${machineLabel(resumable.machine)}`,
         );
       if (task.stale) bits.push(`quiet ${ago(task.lastActivityAt, now)}`);
+      const pullRequests = pullRequestNote(task.pullRequests);
+      if (pullRequests) bits.push(pullRequests);
       if (task.goal) bits.push(task.goal.ref);
       if (!bits.length && task.stageSince)
         bits.push(
@@ -1493,7 +1515,7 @@ export default class Clocktopus extends View {
         iconButton(
           `more-${task.key}`,
           open ? "chevron-down" : "chevron-right",
-          open ? "Less" : "Sessions and details",
+          open ? "Less" : "Sessions, pull requests and details",
           t,
           (_e, cx) => {
             this.open = open ? null : task.key;
@@ -1687,6 +1709,34 @@ export default class Clocktopus extends View {
           .border_color(t.border)
           .children(
             items.map((item, i) => listRow(t, { ...item, first: i === 0 })),
+          ),
+      );
+    const pullRequests = task.pullRequests ?? [];
+    if (pullRequests.length)
+      parts.push(
+        v_flex()
+          .rounded(7)
+          .overflow_hidden()
+          .bg(t.background)
+          .border_1()
+          .border_color(t.border)
+          .children(
+            pullRequests.map((pr, i) => {
+              const look = pullRequestLook(pr.status, t);
+              const link = isWebUrl(pr.url);
+              return listRow(t, {
+                id: `pr-${task.key}-${pr.repository}-${pr.number}`,
+                first: i === 0,
+                marker: dot(look.color, 8, look.hollow),
+                name: `#${pr.number}`,
+                status: `${pr.status} · ${pr.title}`,
+                tip: link
+                  ? `Open ${pr.repository}#${pr.number} on ${providerName(pr.provider)}`
+                  : `${pr.repository}#${pr.number}`,
+                onClick: link ? (cx) => cx.open_url(pr.url) : undefined,
+                external: link,
+              });
+            }),
           ),
       );
     if (alsoOn.length)

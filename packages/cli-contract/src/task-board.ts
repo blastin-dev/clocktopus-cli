@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { TaskPullRequestSchema } from "./pull-request";
 import { TimestampSchema } from "./timestamp";
 
 // The stages a task board lists, in its column order: To do, In progress, In
@@ -64,6 +65,8 @@ const BoardTaskSchema = z.object({
   ),
   // The caller's own sessions on it, newest first.
   sessions: z.array(BoardSessionSchema),
+  // Newest first; absent from a server older than this field.
+  pullRequests: z.array(TaskPullRequestSchema).default([]),
 });
 export type BoardTask = z.infer<typeof BoardTaskSchema>;
 

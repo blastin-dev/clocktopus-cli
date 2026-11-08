@@ -58,7 +58,9 @@ and `plugin.json` no `types`.
   task other than the one its branch names, and `· CLI upgrade required` when
   the server no longer serves the CLI.
 - **Pane:** the task with its stage in the web app's colours and an **Open**
-  button for its page, the human and agent time on it, then this session: its
+  button for its page, the human and agent time on it, its pull requests
+  newest first (number, status and title, each a button opening it at GitHub
+  or Bitbucket), then this session: its
   id (**Copy id** copies it whole), whether it is attributed and to which task,
   the branch, the worktree, its spend and when it last reported, and the goal's
   open tasks in order (▶ this session's, ● started, ○ not started), and the

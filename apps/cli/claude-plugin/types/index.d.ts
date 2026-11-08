@@ -1,6 +1,18 @@
 // The panel's view of `get_session_panel`'s answer, as the hooks module keeps it in `$.state`;
 // the answer itself is `SessionPanelSchema` (`packages/cli-contract/src/session-panel.ts`).
 
+export type PullRequest = {
+  provider: string
+  // Lowercase `owner/repo`.
+  repository: string
+  number: number
+  title: string
+  // The pull request's page at its provider.
+  url: string
+  // One of `PULL_REQUEST_COLOR`'s keys (`hooks/panel.ts`).
+  status: string
+}
+
 export type Task = {
   key: string
   title: string | null
@@ -10,6 +22,8 @@ export type Task = {
   agentHours: number | null
   // The task's page in the web app; null when the organisation's slug is unknown.
   pageUrl: string | null
+  // Newest first.
+  pullRequests: PullRequest[]
 }
 
 export type GoalTask = Pick<Task, 'key' | 'title' | 'stage'> & { claimed: boolean }

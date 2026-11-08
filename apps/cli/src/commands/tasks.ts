@@ -142,6 +142,10 @@ export function formatTaskBoard(output: TasksOutput): string {
           : null,
         task.stale ? `quiet since ${formatAgo(task.lastActivityAt)}` : null,
         task.goal ? task.goal.ref : null,
+        // A closed pull request is a dead end; `--json` still lists it.
+        ...task.pullRequests
+          .filter((pullRequest) => pullRequest.status !== "closed")
+          .map((pullRequest) => `#${pullRequest.number} ${pullRequest.status}`),
       ].filter(Boolean);
       lines.push(
         `  ${task.key.padEnd(10)} ${task.title ?? "(untitled)"}${

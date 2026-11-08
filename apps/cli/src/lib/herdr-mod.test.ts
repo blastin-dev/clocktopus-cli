@@ -25,6 +25,7 @@ import {
   goalKeys,
   inView,
   isBoardHint,
+  isWebUrl,
   labelledSessions,
   labelledTasks,
   liveAgents,
@@ -34,17 +35,19 @@ import {
   parseBoard,
   parseLocalSessions,
   pollEvery,
+  providerName,
+  pullRequestNote,
   resumeArgv,
   resumeChoice,
   resumeSpace,
   spaceFolder,
   startAgents,
-  worktreeBranch,
   startPrompt,
   tabRenames,
   terminalOf,
   withAgentStages,
   workingElsewhere,
+  worktreeBranch,
 } from "../../herdr/mods/clocktopus/model.js";
 import { HERDR_SESSION_LABEL, HERDR_TASK_LABEL } from "./herdr-terminal.js";
 import { BOARD_TOPICS } from "./realtime-watch.js";
@@ -79,6 +82,7 @@ function task(key: string, overrides: Partial<BoardTask> = {}): BoardTask {
     pageUrl: null,
     working: [],
     sessions: [],
+    pullRequests: [],
     ...overrides,
   };
 }
@@ -793,6 +797,46 @@ describe("realtime hints", () => {
     expect(pollEvery(JSON.stringify({ state: "offline" }))).toBe(30_000);
     expect(pollEvery(null)).toBe(30_000);
     expect(pollEvery("not json")).toBe(30_000);
+  });
+});
+
+describe("pull requests on a row", () => {
+  const pullRequest = (number: number, status: string) => ({
+    number,
+    status,
+  });
+
+  it("names the newest that isn't closed, and how many others aren't", () => {
+    expect(
+      pullRequestNote([
+        pullRequest(14, "closed"),
+        pullRequest(13, "draft"),
+        pullRequest(12, "open"),
+        pullRequest(11, "merged"),
+      ]),
+    ).toBe("#13 draft +2");
+    expect(pullRequestNote([pullRequest(12, "merged")])).toBe("#12 merged");
+  });
+
+  it("says nothing for a task whose pull requests are all closed, or a board without them", () => {
+    expect(pullRequestNote([pullRequest(12, "closed")])).toBeNull();
+    expect(pullRequestNote([])).toBeNull();
+    expect(pullRequestNote(undefined)).toBeNull();
+  });
+
+  it("opens only a pull request whose link is a web page", () => {
+    expect(
+      isWebUrl("https://bitbucket.org/acme-co/acmeportal/pull-requests/3"),
+    ).toBe(true);
+    expect(isWebUrl("")).toBe(false);
+    expect(isWebUrl("file:///etc/passwd")).toBe(false);
+    expect(isWebUrl(undefined)).toBe(false);
+  });
+
+  it("names the providers by their own names", () => {
+    expect(providerName("github")).toBe("GitHub");
+    expect(providerName("bitbucket")).toBe("Bitbucket");
+    expect(providerName("gitlab")).toBe("gitlab");
   });
 });
 

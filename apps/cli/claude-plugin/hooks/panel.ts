@@ -1,4 +1,12 @@
-import type { Attribution, Cli, Environment, Goal, Task, View } from "../types";
+import type {
+  Attribution,
+  Cli,
+  Environment,
+  Goal,
+  PullRequest,
+  Task,
+  View,
+} from "../types";
 
 // The web app's `STAGE_LABEL`, lowercased.
 export const STAGE_LABEL: Record<string, string> = {
@@ -18,6 +26,14 @@ export const STAGE_COLOR: Record<string, string> = {
   merged: "#0ea5e9",
   done: "#8b5cf6",
   cancelled: "inactive",
+};
+// A pull request's status (`PullRequestStatusSchema` in `packages/cli-contract/src/pull-request.ts`)
+// in the colours its providers give it: green open, purple merged, grey draft and closed.
+export const PULL_REQUEST_COLOR: Record<string, string> = {
+  open: "success",
+  draft: "inactive",
+  merged: "#8b5cf6",
+  closed: "inactive",
 };
 const STATUS_NOTE: Record<string, string> = {
   no_project: "this repository is linked to no Clocktopus project",
@@ -43,6 +59,8 @@ export const duration = (hours: number) =>
   hours < 1 ? `${Math.round(hours * 60)}m` : `${hours.toFixed(1)}h`;
 export const stageOf = (stage: string) => STAGE_LABEL[stage] ?? stage;
 export const colorOf = (stage: string) => STAGE_COLOR[stage] ?? "inactive";
+export const pullRequestColorOf = (status: string) =>
+  PULL_REQUEST_COLOR[status] ?? "inactive";
 export const totalOf = (goal: Goal) => goal.doneCount + goal.open.length;
 export const messageOf = (error: unknown) =>
   (error instanceof Error ? error.message : String(error))
@@ -79,6 +97,27 @@ export function isMovingCall(tool: string, command: string | null) {
   );
 }
 
+// Bitbucket's webhook can carry no link, which is stored as "", and the pane opens a pull request
+// only at a web page.
+const WEB_URL = /^https?:\/\//i;
+
+function readPullRequest(value: Record<string, unknown>): PullRequest[] {
+  const number = amount(value.number);
+  const url = text(value.url);
+  const status = text(value.status);
+  if (number === null || !url || !WEB_URL.test(url) || !status) return [];
+  return [
+    {
+      provider: text(value.provider) ?? "",
+      repository: text(value.repository) ?? "",
+      number,
+      title: text(value.title) ?? "",
+      url,
+      status,
+    },
+  ];
+}
+
 function readTask(value: unknown): Task | null {
   if (!isRecord(value)) return null;
   const key = text(value.key);
@@ -90,6 +129,7 @@ function readTask(value: unknown): Task | null {
     hours: amount(value.hours),
     agentHours: amount(value.agentHours),
     pageUrl: text(value.pageUrl),
+    pullRequests: records(value.pullRequests).flatMap(readPullRequest),
   };
 }
 

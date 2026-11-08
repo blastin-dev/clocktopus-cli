@@ -166,7 +166,7 @@ clocktopus tasks [--json] [--repository <url>] [--org <id>] [--limit <n>]
 
 The open tasks of the Clocktopus project this checkout's `origin` belongs to,
 grouped as To do, In progress, In review and Ready to ship, with the agents
-working on each now. To do lists the project's active goals' tasks in goal
+working on each now and its pull requests that aren't closed (`#12 draft`). To do lists the project's active goals' tasks in goal
 order, then the newest, up to `--limit` (30 by default). In progress leaves out
 a task nothing has touched for 30 days, unless an agent is working on it. Ready
 to ship lists the 20 tasks merged most recently and not yet delivered, so their
@@ -175,7 +175,8 @@ sessions can still be found.
 `--json` prints one JSON object whatever happens, for programs that show the
 board: the board as `GET /api/agent/task-board`
 returns it (`TaskBoardSchema` in `@repo/cli-contract/task-board`), with your
-own agent sessions on each task and where they ran, and the project's active
+own agent sessions on each task and where they ran, its pull requests newest
+first with their status and link, and the project's active
 goals with their tasks' keys, or a `status` of
 `signed_out`, `not_a_repository` or `error`. It exits with `1` on any of
 those. Every object carries `environment`: the server the CLI talks to and

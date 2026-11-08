@@ -19,6 +19,7 @@ function task(key: string, overrides: Partial<BoardTask> = {}): BoardTask {
     pageUrl: null,
     working: [],
     sessions: [],
+    pullRequests: [],
     ...overrides,
   };
 }
@@ -113,6 +114,37 @@ describe("formatTaskBoard", () => {
         "Ready to ship · 1 of 3",
         "  ACME-4     Task ACME-4",
       ].join("\n"),
+    );
+  });
+
+  it("marks a task with its pull requests that aren't closed", () => {
+    const pullRequest = (
+      number: number,
+      status: BoardTask["pullRequests"][number]["status"],
+    ) => ({
+      provider: "github",
+      repository: "acme-co/acmeportal",
+      number,
+      title: `Pull request ${number}`,
+      url: `https://github.com/acme-co/acmeportal/pull/${number}`,
+      status,
+      openedAt: "2026-11-05T09:00:00.000Z",
+    });
+    const text = formatTaskBoard(
+      board([
+        task("ACME-5", {
+          stage: "in_review",
+          pullRequests: [
+            pullRequest(12, "draft"),
+            pullRequest(11, "closed"),
+            pullRequest(10, "merged"),
+          ],
+        }),
+      ]),
+    );
+
+    expect(text).toContain(
+      "  ACME-5     Task ACME-5  [#12 draft · #10 merged]",
     );
   });
 

@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { PullRequestStatusSchema } from "@repo/cli-contract/pull-request";
 import { stripRemoteCredentials } from "@repo/cli-contract/remote-url";
 import {
   SessionPanelSchema,
@@ -20,6 +21,7 @@ import {
   isMovingCall,
   isRefreshingCall,
   messageOf,
+  PULL_REQUEST_COLOR,
   sessionRows,
   spendOf,
   sshHostOf,
@@ -51,6 +53,16 @@ const PANEL = {
     hours: 1.5,
     agentHours: 0.25,
     pageUrl: "https://clocktopus.example/acme/tasks/ACME-42",
+    pullRequests: [
+      {
+        provider: "github",
+        repository: "acme-co/acmeportal",
+        number: 12,
+        title: "Export invoices as CSV",
+        url: "https://github.com/acme-co/acmeportal/pull/12",
+        status: "draft",
+      },
+    ],
   },
   goal: {
     ref: "G-2",
@@ -187,6 +199,31 @@ describe("viewOf", () => {
     );
   });
 
+  it("reads a task's pull requests, skipping one without a number or a web link, and none from an older server", () => {
+    const view = viewOf(
+      {
+        ...PANEL,
+        task: {
+          ...PANEL.task,
+          pullRequests: [
+            ...PANEL.task.pullRequests,
+            { number: 13, status: "open" },
+            { number: 14, status: "open", url: "" },
+            { number: 15, status: "open", url: "file:///etc/passwd" },
+            "not a pull request",
+          ],
+        },
+      },
+      SESSION,
+    );
+    const { pullRequests, ...older } = PANEL.task;
+
+    expect(view.task?.pullRequests).toEqual(pullRequests);
+    expect(
+      viewOf({ ...PANEL, task: older }, SESSION).task?.pullRequests,
+    ).toEqual([]);
+  });
+
   it("reads an answer without attribution as an unknown session", () => {
     const view = viewOf(
       { ...PANEL, attribution: undefined, goal: null },
@@ -212,7 +249,15 @@ describe("viewOf", () => {
         organizationSlug: "acme",
       },
       taskKey: "ACME-42",
-      task: { ...PANEL.task, stage: "in_progress" },
+      task: {
+        ...PANEL.task,
+        stage: "in_progress",
+        pullRequests: PANEL.task.pullRequests.map((pullRequest) => ({
+          ...pullRequest,
+          status: "draft" as const,
+          openedAt: "2026-10-26T08:00:00.000Z",
+        })),
+      },
       branchTask: null,
       attribution: {
         ...PANEL.attribution,
@@ -486,6 +531,12 @@ describe("stages and amounts", () => {
     );
     expect(Object.keys(STAGE_COLOR).sort()).toEqual(
       [...TaskStageSchema.options].sort(),
+    );
+  });
+
+  it("colours every pull request status the server answers with", () => {
+    expect(Object.keys(PULL_REQUEST_COLOR).sort()).toEqual(
+      [...PullRequestStatusSchema.options].sort(),
     );
   });
 

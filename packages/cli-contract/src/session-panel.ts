@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { TaskPullRequestSchema } from "./pull-request";
 import { TimestampSchema } from "./timestamp";
 
 export const TaskStageSchema = z.enum([
@@ -19,6 +20,8 @@ const PanelTaskSchema = z.object({
   hours: z.number(),
   agentHours: z.number(),
   pageUrl: z.string().nullable(),
+  // Newest first; absent from a server older than this field.
+  pullRequests: z.array(TaskPullRequestSchema).default([]),
 });
 
 // The MCP tool `get_session_panel`'s `status: "ok"` answer, which the Claude Code
