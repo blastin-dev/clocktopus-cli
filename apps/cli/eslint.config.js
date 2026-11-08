@@ -57,6 +57,15 @@ export default [
     },
   },
   {
+    files: ["herdr/**"],
+    rules: {
+      // A shadowed helper only fails when Herdr renders the branch that calls
+      // it, and a throw in render freezes the panel. `cx` is shadowed on
+      // purpose: each callback gets its own context.
+      "no-shadow": ["error", { allow: ["cx"] }],
+    },
+  },
+  {
     files: ["claude-plugin/**"],
     rules: {
       // A hooks module imports only its plugin's own files and `claude-code`,

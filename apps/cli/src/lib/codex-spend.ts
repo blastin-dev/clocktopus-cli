@@ -7,7 +7,6 @@ import {
   readCodexSpendCursor,
   writeCodexSpendCursor,
 } from "./agent-hook-state.js";
-import { readCodexConfig, readCodexLogExporter } from "./codex-config.js";
 import {
   codexSpendCursorBefore,
   findCodexRollout,
@@ -116,17 +115,6 @@ export async function reportCodexSpend(input: {
           subDays(new Date(), CODEX_SPEND_CURSOR_MAX_AGE_DAYS),
         ),
     );
-
-    // Codex's own exporter is still sending this session's spend: marking it reported
-    // keeps it from being sent twice once setup removes the exporter.
-    if (readCodexLogExporter(readCodexConfig().config).ours) {
-      noteHookDryRun(
-        dryRun,
-        "Codex spend: Codex's own log exporter still sends it, so the hook does not",
-      );
-      if (!dryRun) writeCodexSpendCursor(input.sessionId, pending.cursor);
-      return;
-    }
 
     if (pending.usage.length === 0 && pending.turns.length === 0) {
       noteHookDryRun(dryRun, "Codex spend: nothing new since the last report");

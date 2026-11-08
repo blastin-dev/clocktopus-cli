@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.14.0](https://github.com/blastin-dev/clocktopus/compare/cli-contract-v0.13.0...cli-contract-v0.14.0) (2026-11-08)
+
+
+### Features
+
+* **clk-117:** list ready to ship tasks in the Herdr panel and clocktopus tasks ([af41f12](https://github.com/blastin-dev/clocktopus/commit/af41f12d761aaf96959fcbe33d1d2dedf7e1d7fe))
+* **clk-117:** list ready to ship tasks in the Herdr panel and clocktopus tasks ([9db1022](https://github.com/blastin-dev/clocktopus/commit/9db1022c374b844002b8c68d63afa3940c656c26))
+* **clk-122:** show each task's pull requests in the Herdr and Claude Code panels ([309accb](https://github.com/blastin-dev/clocktopus/commit/309accbd028f420627af55d097d274823d018d17))
+* **clk-122:** show each task's pull requests in the Herdr and Claude Code panels ([d028c62](https://github.com/blastin-dev/clocktopus/commit/d028c625ce58290daf9786416794e2baf7919e83))
+
+
+### Bug Fixes
+
+* **clk-117:** count only listed merged tasks in a goal's board keys ([2be5806](https://github.com/blastin-dev/clocktopus/commit/2be5806641f5c3e9718eea79f5385d20ef76412e))
+
 ## [0.13.0](https://github.com/blastin-dev/clocktopus/compare/cli-contract-v0.12.0...cli-contract-v0.13.0) (2026-11-07)
 
 

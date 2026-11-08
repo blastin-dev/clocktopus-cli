@@ -1,6 +1,7 @@
 import type { BoardStage, TaskBoard } from "@repo/cli-contract/task-board";
 import {
   BoardStageSchema,
+  MERGED_LIMIT_DEFAULT,
   TaskBoardSchema,
   TODO_LIMIT_DEFAULT,
   TODO_LIMIT_MAX,
@@ -32,6 +33,7 @@ export const STAGE_LABELS: Record<BoardStage, string> = {
   created: "To do",
   in_progress: "In progress",
   in_review: "In review",
+  merged: "Ready to ship",
 };
 
 export function taskBoardPath(input: {
@@ -42,6 +44,7 @@ export function taskBoardPath(input: {
   const query = new URLSearchParams({
     repositoryUrl: input.repositoryUrl,
     todoLimit: String(input.todoLimit),
+    mergedLimit: String(MERGED_LIMIT_DEFAULT),
   });
   if (input.org) query.set("orgId", input.org);
   return `/api/agent/task-board?${query.toString()}`;
@@ -116,10 +119,15 @@ export function formatTaskBoard(output: TasksOutput): string {
   ];
   for (const stage of BoardStageSchema.options) {
     const tasks = output.tasks.filter((task) => task.stage === stage);
+    const total =
+      stage === "created"
+        ? output.todoTotal
+        : stage === "merged"
+          ? output.mergedTotal
+          : tasks.length;
+    if (stage === "merged" && total === 0) continue;
     const count =
-      stage === "created" && output.todoTotal > tasks.length
-        ? `${tasks.length} of ${output.todoTotal}`
-        : `${tasks.length}`;
+      total > tasks.length ? `${tasks.length} of ${total}` : `${tasks.length}`;
     lines.push("", `${STAGE_LABELS[stage]} · ${count}`);
     for (const task of tasks) {
       const marks = [
@@ -134,6 +142,10 @@ export function formatTaskBoard(output: TasksOutput): string {
           : null,
         task.stale ? `quiet since ${formatAgo(task.lastActivityAt)}` : null,
         task.goal ? task.goal.ref : null,
+        // A closed pull request is a dead end; `--json` still lists it.
+        ...task.pullRequests
+          .filter((pullRequest) => pullRequest.status !== "closed")
+          .map((pullRequest) => `#${pullRequest.number} ${pullRequest.status}`),
       ].filter(Boolean);
       lines.push(
         `  ${task.key.padEnd(10)} ${task.title ?? "(untitled)"}${

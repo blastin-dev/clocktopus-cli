@@ -165,15 +165,18 @@ clocktopus tasks [--json] [--repository <url>] [--org <id>] [--limit <n>]
 ```
 
 The open tasks of the Clocktopus project this checkout's `origin` belongs to,
-grouped as To do, In progress and In review, with the agents working on each
-now. To do lists the project's active goals' tasks in goal order, then the
-newest, up to `--limit` (30 by default). In progress leaves out a task
-nothing has touched for 30 days, unless an agent is working on it.
+grouped as To do, In progress, In review and Ready to ship, with the agents
+working on each now and its pull requests that aren't closed (`#12 draft`). To do lists the project's active goals' tasks in goal
+order, then the newest, up to `--limit` (30 by default). In progress leaves out
+a task nothing has touched for 30 days, unless an agent is working on it. Ready
+to ship lists the 20 tasks merged most recently and not yet delivered, so their
+sessions can still be found.
 
 `--json` prints one JSON object whatever happens, for programs that show the
 board: the board as `GET /api/agent/task-board`
 returns it (`TaskBoardSchema` in `@repo/cli-contract/task-board`), with your
-own agent sessions on each task and where they ran, and the project's active
+own agent sessions on each task and where they ran, its pull requests newest
+first with their status and link, and the project's active
 goals with their tasks' keys, or a `status` of
 `signed_out`, `not_a_repository` or `error`. It exits with `1` on any of
 those. Every object carries `environment`: the server the CLI talks to and
@@ -468,8 +471,9 @@ place. An entry untouched for 90 days is deleted, and a session with no entry
 sends only turns from the last 90 days. The token sits in `~/.codex/clocktopus.json`, readable only by you, because Codex
 passes a hook no environment from its config.
 
-Until setup runs again with this CLI, an older install keeps reporting through
-Codex's exporter, and `agent doctor` flags it.
+The receiver discards what Codex's exporter sends, so an older install whose
+`[otel]` exporter is still in place reports through the hook all the same, and
+`agent doctor` flags the leftover exporter until setup runs again.
 
 **Codex needs one extra step, once.** It will not run a `hooks.json` it has
 not been shown, so the next Codex session asks — answer _Trust all and
@@ -737,7 +741,6 @@ error's message, detail or params.
 | ------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/v1/metrics`       | `normalize-claude-code.ts`      | Metrics `claude_code.session.count`, `cost.usage`, `token.usage`, `active_time.total`, `lines_of_code.count`, `commit.count`, `pull_request.count`; point attributes `session.id`, `model`, `query_source`, `type`, `start_type`, `terminal.type`; resource `service.version`                                                                                                                                        |
 | `/v1/logs`          | `normalize-claude-code-logs.ts` | Scope `com.anthropic.claude_code.events`, `subagent_completed` and `user_prompt` records only: `event.name`, `event.timestamp`, `session.id`, `terminal.type`, `duration_ms`                                                                                                                                                                                                                                         |
-| `/v1/logs`          | `normalize-codex-logs.ts`       | Scope `codex_otel.log_only`: `event.name`, `event.kind`, `event.timestamp`, `conversation.id`, `app.version`, `model`, `slug`, `terminal.type`, `duration_ms`, `input_token_count`, `output_token_count`, `cached_token_count`, `cache_write_token_count`                                                                                                                                                            |
 | `/v1/traces`        | `normalize-genai-traces.ts`     | Span name, start and end; `gen_ai.client.session_id` (or `gen_ai.conversation.id`, `session.id`), `gen_ai.client.name` (or `gen_ai.provider.name`, resource `service.name`), `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `cost`, `vcs.repository.name`, `vcs.ref.head.name`; resource `service.version` |
 | `/v1/agent-session` | `agent-session-hook.ts`         | The session report fields above. `transcript_path` is accepted and never read                                                                                                                                                                                                                                                                                                                                        |
 

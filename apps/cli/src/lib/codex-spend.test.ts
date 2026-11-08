@@ -253,7 +253,7 @@ describe("reportCodexSpend", () => {
     expect(requests[1]!.body).toBe(requests[0]!.body);
   });
 
-  it("sends nothing while Codex's own exporter from an older setup still reports", async () => {
+  it("reports while Codex's own exporter from an older setup is still configured", async () => {
     writeFileSync(
       join(home, ".codex", "config.toml"),
       `[otel]
@@ -268,12 +268,8 @@ Authorization = "Bearer ${TOKEN}"
 `,
     );
     await report();
-    expect(requests).toHaveLength(0);
 
-    // Once setup removes the exporter, what it already sent is not sent again.
-    rmSync(join(home, ".codex", "config.toml"));
-    await report();
-    expect(requests).toHaveLength(0);
+    expect(requests).toHaveLength(1);
   });
 
   it("sends nothing for a file that belongs to another session", async () => {

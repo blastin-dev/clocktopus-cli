@@ -1,7 +1,8 @@
 // Clocktopus beside your agents: the shown space's project tasks by stage, which ones a Herdr
 // agent is working on, and a way back into each task's agent sessions.
 // Roles (props.role): the panel (default); "toggle", the tab-bar button that shows or hides
-// the layout's "clocktopus-panel" node; "start", the popup that starts work on a task or its goal.
+// the layout's "clocktopus-panel" node; "actions", the popup of a task's more actions; "taken", the
+// dialog when the task already has worktrees.
 import { h_flex, Input, InputState, v_flex } from "gpui-base";
 import { div, image, svg, View } from "gpui-kit";
 import {
@@ -9,6 +10,7 @@ import {
   props as blockProps,
   closeOverlay,
   exec,
+  focused,
   hc,
   home,
   knownAgents,
@@ -29,34 +31,51 @@ import {
 } from "herdr";
 
 import {
+  ACTIONS_HEADER,
+  ACTIONS_ROW,
+  ACTIONS_WIDTH,
+  actionsPopupHeight,
   agentName,
   agentsByTask,
   ago,
   clickTarget,
   environmentBanner,
   filterTasks,
+  focusTarget,
   folderName,
   forkArgv,
   goalKeys,
+  installedAgents,
+  inView,
   isBoardHint,
+  isWebUrl,
   labelledSessions,
   labelledTasks,
   liveAgents,
   localSessionsScript,
   mostUrgent,
+  movedOn,
   parseBoard,
   parseLocalSessions,
   POLL_MS,
   pollEvery,
+  providerName,
+  pullRequestNote,
   resumeArgv,
   resumeChoice,
   resumeSpace,
   spaceFolder,
   STAGES,
-  startAgent,
-  startPrompt,
+  tabRenames,
+  takenDialogHeight,
   terminalOf,
+  terminalsByTask,
   withAgentStages,
+  workingElsewhere,
+  worktreeBranch,
+  worktreeChoice,
+  WORKTREES_SCRIPT,
+  worktreeSpace,
 } from "./model.js";
 
 const PANEL = "clocktopus-panel"; // the layout node the toggle shows and hides; its hidden state is the layout's, so it survives space switches
@@ -65,7 +84,7 @@ const TODO_LOADED = 200;
 // Where the CLI is usually installed, for a desktop app started without the login shell's PATH.
 const PATHS =
   'PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$HOME/.local/share/pnpm:$HOME/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH';
-const STAGE_ORDER = ["in_review", "in_progress", "created"];
+const STAGE_ORDER = ["merged", "in_review", "in_progress", "created"];
 const MARK = "mods/clocktopus/mark.png";
 // Where `clocktopus realtime watch` keeps its files on this computer.
 const realtimeDir = () => `${home()}/.clocktopus/realtime`;
@@ -191,11 +210,25 @@ const cooking = (t) => t.ansi3 || t.working;
 // The spinning ring at 10px draws an 8px circle, the size of `dot`.
 const spinner = (color) => icon("ring", 10, color).spin(900);
 
-// One line of an open row's list of agents and sessions: a marker, the agent, its state, and
-// then the space › tab it is in, or an action. With `onClick` the whole line is the click.
+// One line of an open row's list of agents, sessions or pull requests: a marker, a name, its
+// state, and then the space › tab it is in, or an action. With `onClick` the whole line is the
+// click; `external` marks one that opens a page outside Herdr.
 function listRow(
   t,
-  { id, first, marker, name, status, statusColor, tag, tip, onClick, action },
+  {
+    id,
+    first,
+    marker,
+    name,
+    status,
+    statusColor,
+    tag,
+    tip,
+    onClick,
+    action,
+    shown,
+    external,
+  },
 ) {
   const go = Boolean(onClick);
   return h_flex()
@@ -205,7 +238,10 @@ function listRow(
     .pr(8)
     .gap(9)
     .items_center()
-    .when(!first, (el) => el.border_t_1().border_color(t.border))
+    .when(Boolean(shown), (el) =>
+      el.rounded(7).border_1().border_color(t.accent),
+    )
+    .when(!first && !shown, (el) => el.border_t_1().border_color(t.border))
     .when(go, (el) =>
       el
         .cursor_pointer()
@@ -213,7 +249,7 @@ function listRow(
         .on_mouse_down("left", stop)
         .on_click((_e, cx) => {
           cx.stop_propagation();
-          onClick();
+          onClick(cx);
         }),
     )
     .when(Boolean(tip), (el) => el.tooltip(tip))
@@ -253,7 +289,9 @@ function listRow(
           .child(div().flex_none().child(tag.tab)),
       ),
     )
-    .when(go, (el) => el.child(icon("arrow-right", 13, t.muted)))
+    .when(go, (el) =>
+      el.child(icon(external ? "external" : "arrow-right", 13, t.muted)),
+    )
     .when(Boolean(action), (el) => el.child(action));
 }
 
@@ -267,6 +305,19 @@ function find(node, id) {
     if (f) return f;
   }
   return null;
+}
+
+// How a pull request's status reads on a row, in the colours its providers give it: green
+// open, purple merged, and a hollow grey draft or closed one.
+function pullRequestLook(status, t) {
+  switch (status) {
+    case "open":
+      return { color: t.ansi2 || t.accent, hollow: false };
+    case "merged":
+      return { color: t.ansi5 || t.accent, hollow: false };
+    default:
+      return { color: t.muted, hollow: true };
+  }
 }
 
 // How a Herdr agent status reads on a row.
@@ -283,68 +334,287 @@ function statusLook(status, t) {
   }
 }
 
-// A new tab in the space whose agent runs the start-work skill on `target` (a task key or a
-// goal ref) as its first message.
-function startWork(ctx, agent, target) {
-  run("tab.new", {
-    space: ctx.space,
-    folder: ctx.folder || undefined,
-    argv: agent.run,
-    task: startPrompt(agent.key, target),
-    name: target,
+const agentIcon = (agent, t) =>
+  !agent.icon
+    ? div().size(14).flex_none()
+    : agent.tint
+      ? svg(agent.icon).size(14).flex_none().text_color(t.foreground)
+      : image(agent.icon).size(14).flex_none();
+
+// Herdr's worktree dialog, given a branch, checks it out in ~/.herdr/worktrees/<repo>/ (a new
+// branch from the space's HEAD) and opens it as a new space whose first tab runs `argv`, the
+// agent with no first message, or a terminal without it.
+function newWorktree(ctx, key, branch, agent) {
+  openOverlay({
+    mod: "worktree",
+    kind: "dialog",
+    width: 460,
+    height: 280,
+    props: {
+      space: ctx.space,
+      folder: ctx.folder || undefined,
+      action: "new",
+      branch,
+      ...(agent ? { argv: agent.run, tab: key } : {}),
+    },
   });
 }
 
-// The popup a To do task in a goal opens: start-work on the task alone, or on the goal.
-function startPopup() {
+// An existing worktree: the space already at it on its machine gets the agent as a new tab, or
+// is shown for a terminal; without one, a new space opens there.
+function openWorktree(ctx, key, path, agent, paths = []) {
+  const space = worktreeSpace(spaces(), panes(), ctx.on ?? null, path, paths);
+  if (space && agent)
+    run("tab.new", {
+      space: space.id,
+      folder: path,
+      argv: agent.run,
+      name: key,
+    });
+  else if (space) run("space.select", { id: space.id });
+  else
+    run("space.new", {
+      machine: ctx.on ?? "",
+      folder: path,
+      tab: key,
+      ...(agent ? { argv: agent.run } : {}),
+    });
+}
+
+const TAKEN_WIDTH = 460;
+
+// The menu a row's more-actions button opens, drawn like Herdr's new-tab menu: the task's new
+// worktree with a terminal, or with an installed agent (keys 1-9), and Open in Clocktopus.
+// When the task already has worktrees (`worktree.existing`), the `taken` dialog lists them to
+// open, or names another.
+function actionsPopup(handle) {
   const t = theme();
-  const { ctx, agent, task, goal, overlay } = blockProps();
-  const option = (id, label, detail, target) =>
-    v_flex()
+  const { ctx, agents: installed, task, worktree, overlay } = blockProps();
+  const then = (fn) => (_e, cx) => {
+    closeOverlay(overlay);
+    fn(cx);
+  };
+  const branch = worktreeBranch(task);
+  const start = (agent) =>
+    worktree?.existing.length
+      ? openOverlay({
+          mod: "clocktopus",
+          kind: "dialog",
+          width: TAKEN_WIDTH,
+          height: takenDialogHeight(worktree.existing.length),
+          props: {
+            role: "taken",
+            ctx,
+            key: task.key,
+            existing: worktree.existing,
+            paths: worktree.paths,
+            branch: worktree.branch,
+            agent: agent ?? null,
+          },
+        })
+      : newWorktree(ctx, task.key, branch, agent);
+  const line = (id, lead, name, hint, onClick) =>
+    h_flex()
       .id(id)
-      .px(10)
-      .py(7)
-      .rounded(6)
+      .h(ACTIONS_ROW)
+      .px(9)
+      .gap(10)
+      .flex_none()
+      .items_center()
+      .rounded(7)
       .cursor_pointer()
-      .hover((s) => s.bg(t.hover))
+      .hover((s) => s.bg(t.selected))
+      .on_click(onClick)
+      .child(lead)
+      .child(div().flex_1().min_w(0).truncate().child(name))
+      .child(
+        div()
+          .flex_none()
+          .text_size(11)
+          .text_color(t.dim ?? t.muted)
+          .child(hint),
+      );
+  const divider = () => div().h(1).flex_none().mx(4).my(5).bg(t.border);
+  const header = (text) =>
+    div()
+      .h(ACTIONS_HEADER)
+      .flex_none()
+      .px(9)
+      .pt(8)
+      .pb(4)
+      .truncate()
+      .text_size(11)
+      .text_color(t.dim ?? t.muted)
+      .child(text);
+  return (
+    v_flex()
+      .id("clocktopus-actions")
+      // A definite height, as Herdr's new-tab menu has, so the `flex_1` agent list can scroll.
+      .w_full()
+      .h(actionsPopupHeight(installed, Boolean(task.pageUrl)))
+      .min_h(0)
+      .p(5)
+      .bg(t.popover)
+      .text_color(t.foreground)
+      .text_size(12.8)
+      .track_focus(handle)
+      .on_key_down((e) => {
+        if (e.modifiers.control || e.modifiers.platform || e.modifiers.alt)
+          return;
+        const agent = /^[1-9]$/.test(e.key)
+          ? installed[Number(e.key) - 1]
+          : null;
+        if (agent) {
+          closeOverlay(overlay);
+          start(agent);
+        }
+      })
+      .child(
+        line(
+          "action-worktree",
+          icon("branch", 14, t.foreground),
+          "New worktree",
+          branch,
+          then(() => start()),
+        ).tooltip(
+          `Check out ${branch} in a new worktree and open a terminal there`,
+        ),
+      )
+      .when(installed.length > 0, (el) =>
+        el
+          .child(divider())
+          .child(header("New worktree with"))
+          .child(
+            v_flex()
+              .id("action-agents")
+              .flex_1()
+              .min_h(0)
+              .overflow_y_scrollbar()
+              .children(
+                installed.flatMap((agent, n) => [
+                  ...(n > 0 && !agent.tracked && installed[n - 1].tracked
+                    ? [divider(), header("Not tracked by Clocktopus")]
+                    : []),
+                  line(
+                    `action-agent-${agent.key}`,
+                    agentIcon(agent, t),
+                    agent.name,
+                    n < 9 ? String(n + 1) : "",
+                    then(() => start(agent)),
+                  ),
+                ]),
+              ),
+          ),
+      )
+      .when(Boolean(task.pageUrl), (el) =>
+        el.child(divider()).child(
+          line(
+            "action-web",
+            icon("external", 14, t.foreground),
+            "Open in Clocktopus",
+            "",
+            then((cx) => cx.open_url(task.pageUrl)),
+          ),
+        ),
+      )
+  );
+}
+
+// The task already has worktrees: open one of them, or create another under a new name (the next
+// free one to start with) through Herdr's worktree dialog.
+function takenDialog(view) {
+  const t = theme();
+  const { ctx, key, existing, paths, agent, overlay } = blockProps();
+  const create = () => {
+    const name = view.name.value().trim();
+    if (!name) return;
+    closeOverlay(overlay);
+    newWorktree(ctx, key, name, agent);
+  };
+  view.create = create;
+  const at = ctx.on ? null : home();
+  const shortPath = (path) =>
+    at && path.startsWith(`${at}/`) ? `~${path.slice(at.length)}` : path;
+  const row = (w, i) =>
+    h_flex()
+      .id(`taken-${i}`)
+      .h(30)
+      .px(9)
+      .gap(10)
+      .flex_none()
+      .items_center()
+      .rounded(7)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.selected))
+      .tooltip(shortPath(w.path))
       .on_click(() => {
         closeOverlay(overlay);
-        startWork(ctx, agent, target);
+        openWorktree(ctx, key, w.path, agent, paths);
       })
-      .child(div().text_size(S().body).font_medium().child(label))
+      .child(icon("folder", 14, t.foreground))
       .child(
-        div().truncate().text_size(S().label).text_color(t.muted).child(detail),
+        div()
+          .flex_1()
+          .min_w(0)
+          .truncate()
+          .text_color(t.foreground)
+          .child(w.branch),
+      )
+      .child(
+        div()
+          .flex_none()
+          .text_size(11)
+          .text_color(t.dim ?? t.muted)
+          .child(agent ? `open with ${agent.name}` : "open"),
       );
   return v_flex()
+    .id("clocktopus-taken")
+    .track_focus(view.handle)
     .size_full()
-    .p(6)
-    .gap(2)
+    .p(16)
+    .gap(10)
     .bg(t.popover)
-    .text_color(t.foreground)
+    .text_size(13)
     .child(
       div()
-        .px(10)
-        .pt(4)
-        .pb(2)
-        .text_size(S().label)
+        .font_semibold()
+        .text_color(t.foreground)
+        .child(
+          existing.length === 1
+            ? `${key} already has a worktree`
+            : `${key} already has ${existing.length} worktrees`,
+        ),
+    )
+    .child(
+      div()
         .text_color(t.muted)
-        .child(`Start work with ${agent.name}`),
+        .child("Open one, or create another under a new name."),
     )
     .child(
-      option(
-        "start-task",
-        `This task · ${task.key}`,
-        task.title ?? "",
-        task.key,
-      ),
+      v_flex()
+        .id("taken-list")
+        .flex_none()
+        .max_h(5 * 34)
+        .overflow_y_scrollbar()
+        .gap(4)
+        .children(existing.map(row)),
     )
     .child(
-      option(
-        "start-goal",
-        `The whole goal · ${goal.ref}`,
-        `${goal.title}${goal.count ? ` · ${goal.count} open` : ""}`,
-        goal.ref,
-      ),
+      Input.new(view.name)
+        .h(32)
+        .px(10)
+        .items_center()
+        .rounded(6)
+        .border_1()
+        .border_color(t.border)
+        .bg(t.background)
+        .text_color(t.foreground),
+    )
+    .child(div().flex_1())
+    .child(
+      h_flex()
+        .justify_end()
+        .child(button("taken-create", "Create", t, create, { primary: true })),
     );
 }
 
@@ -382,7 +652,24 @@ function toggle() {
 export default class Clocktopus extends View {
   init(_props, cx) {
     this.role = blockProps()?.role ?? "panel";
-    if (this.role === "toggle" || this.role === "start") return;
+    if (this.role === "toggle") return;
+    if (this.role === "actions") {
+      this.handle = cx.focus_handle();
+      this.handle.focus();
+      return;
+    }
+    if (this.role === "taken") {
+      this.handle = cx.focus_handle();
+      this.name = InputState.new({
+        value: blockProps()?.branch ?? "",
+        placeholder: "branch name",
+      });
+      this.name.on("submit", () => this.create?.());
+      this.name.focus();
+      // Focused again once the dialog is shown, as Herdr's own worktree dialog does.
+      cx.timer.after(600, () => this.name.focus());
+      return;
+    }
     this.handle = cx.focus_handle();
     this.ctx = null;
     this.ctxKey = null;
@@ -392,19 +679,22 @@ export default class Clocktopus extends View {
     // A refresh asked for while one ran, so a hint arriving mid-fetch isn't lost.
     this.refreshDue = false;
     this.loadedAt = 0;
-    // Session id to where it is: `{ machine, state: "here" | "running", cwd }`.
+    // Session id to where it is: `{ machine, state: "here" | "running" | "empty", cwd }`.
     this.found = new Map();
     // Sessions a click just resumed, so a second click focuses rather than resuming again.
     this.resumed = new Set();
     // Running session id to the Herdr terminal its process is in, when it is in one.
     this.hosts = new Map();
-    // The agent To do tasks start with on the space's machine (`startAgent`), or null.
-    this.starter = null;
+    // The agents installed on the space's machine (`installedAgents`), most picked first.
+    this.agentsHere = [];
     this.sessionIds = {};
     // What each place showed last, by `<machine>|<folder>`, so switching back shows it at once.
     this.cache = new Map();
     this.open = null;
-    this.collapsed = new Set();
+    // The name each tab was last renamed to, so a rename is asked for once.
+    this.renamed = new Map();
+    // Ready to ship starts collapsed: its tasks are there to go back to, not to work through.
+    this.collapsed = new Set(["merged"]);
     this.query = "";
     this.allTodo = false;
     this.filter = InputState.new({
@@ -505,6 +795,7 @@ export default class Clocktopus extends View {
           () => null,
         );
         this.pollMs = pollEvery(status);
+        const known = knownAgents({ on: ctx.on }).catch(() => null);
         const result = await sh('exec clocktopus tasks --json "$@"', args, {
           cwd: ctx.folder || undefined,
           on: ctx.on,
@@ -514,6 +805,13 @@ export default class Clocktopus extends View {
         this.board = parseBoard(result);
         this.loadedAt = Date.now();
         cx.notify();
+        // Before the session scan below, so a menu opened during it lists the agents.
+        const agentList = await known;
+        if (token !== this.token) return;
+        if (agentList) {
+          this.agentsHere = installedAgents(agentList);
+          cx.notify();
+        }
         await this.findSessionIds();
         if (this.board.status === "ok") {
           const found = await this.findSessions(
@@ -524,12 +822,9 @@ export default class Clocktopus extends View {
           this.found = found;
           this.resumed = new Set();
           this.hosts = await this.findHosts(found);
-          const known = await knownAgents({ on: ctx.on }).catch(() => []);
-          if (token !== this.token) return;
-          this.starter = startAgent(known);
         }
         this.cache.set(ctx.key, {
-          starter: this.starter,
+          agentsHere: this.agentsHere,
           board: this.board,
           found: this.found,
           loadedAt: this.loadedAt,
@@ -576,7 +871,8 @@ export default class Clocktopus extends View {
   }
 
   // Where each of `sessions` is, asked of every machine Herdr reaches at once; a session on
-  // several (a shared folder) counts on the space's machine first, then this computer.
+  // several (a shared folder) counts on the space's machine first, then this computer, and
+  // `empty` only where no machine has its transcript or process.
   async findSessions(sessions, spaceMachine) {
     const { script, args } = localSessionsScript(sessions);
     const found = new Map();
@@ -593,7 +889,8 @@ export default class Clocktopus extends View {
     );
     names.forEach((machine, i) => {
       for (const [id, where] of parseLocalSessions(answers[i].stdout)) {
-        if (!found.has(id)) found.set(id, { machine, ...where });
+        if (!found.has(id) || found.get(id).state === "empty")
+          found.set(id, { machine, ...where });
       }
     });
     return found;
@@ -634,6 +931,28 @@ export default class Clocktopus extends View {
     return hosts;
   }
 
+  // Renames the tabs the panel named after a task to the task their agent is on now
+  // (`tabRenames`), once the render ends.
+  followTabs(cx, live, byTask, goals) {
+    const renames = tabRenames(
+      live,
+      byTask,
+      goals.map((goal) => goal.ref),
+    ).filter(([id, name]) => this.renamed.get(id) !== name);
+    if (!renames.length) return;
+    for (const [id, name] of renames) this.renamed.set(id, name);
+    later(cx, () => {
+      for (const [id, name] of renames) run("tab.rename", { id, name });
+    });
+  }
+
+  // Opens a task's row, uncollapsing its group and showing all of To do so the row is drawn.
+  reveal(key, stage) {
+    this.open = key;
+    if (stage) this.collapsed.delete(stage);
+    if (stage === "created") this.allTodo = true;
+  }
+
   // Opens the session again as a new tab in the space already at its folder on its machine,
   // else in a new space there.
   resume(task, choice) {
@@ -658,7 +977,8 @@ export default class Clocktopus extends View {
 
   render(cx) {
     if (this.role === "toggle") return toggle();
-    if (this.role === "start") return startPopup();
+    if (this.role === "actions") return actionsPopup(this.handle);
+    if (this.role === "taken") return takenDialog(this);
     const t = theme();
 
     const ctx = this.context(),
@@ -669,15 +989,14 @@ export default class Clocktopus extends View {
       this.token++;
       this.loading = false;
       this.refreshDue = false;
-      this.open = null;
-      // Another place is another project, maybe in another organisation or on another
-      // machine: only what this place showed last carries over.
+      // Another place may be another project, in another organisation or on another machine:
+      // its board, sessions and agents are its own. The open row, collapsed groups and Show more
+      // carry over, so a space at another checkout of the same project keeps the task open.
       const last = key ? this.cache.get(key) : null;
       this.board = last?.board ?? null;
       this.found = last?.found ?? new Map();
-      this.starter = last?.starter ?? null;
+      this.agentsHere = last?.agentsHere ?? [];
       this.loadedAt = last?.loadedAt ?? 0;
-      this.allTodo = false;
       if (ctx) later(cx, (cx) => this.refresh(cx));
     }
     const shownNow = !this.hidden();
@@ -758,7 +1077,7 @@ export default class Clocktopus extends View {
       .when(Boolean(banner), (el) =>
         el.child(this.renderEnvironment(t, banner)),
       )
-      .child(this.renderBody(t, ctx))
+      .child(this.renderBody(t, ctx, cx))
       .child(this.renderFooter(t, ctx));
   }
 
@@ -800,7 +1119,7 @@ export default class Clocktopus extends View {
       );
   }
 
-  renderBody(t, ctx) {
+  renderBody(t, ctx, cx) {
     if (!ctx)
       return v_flex()
         .flex_1()
@@ -832,6 +1151,16 @@ export default class Clocktopus extends View {
     );
     const byTask = agentsByTask(board.tasks, live);
     const shown = withAgentStages(board.tasks, byTask);
+    const view = focused();
+    const scene = {
+      byTask,
+      inView: inView(live, view, panes()),
+      terminals: terminalsByTask(board.tasks, panes(), live),
+      tab: view?.tab ?? null,
+      moved: movedOn(board.tasks, byTask, live),
+      stageOf: new Map(shown.tasks.map((task) => [task.key, task.stage])),
+    };
+    this.followTabs(cx, live, byTask, board.goals);
     const todoTotal = board.todoTotal - shown.moved;
     const counts = Object.fromEntries(
       STAGES.map(([stage]) => [
@@ -850,14 +1179,34 @@ export default class Clocktopus extends View {
         stage === "created" && !narrowed && !this.allTodo
           ? matching.slice(0, TODO_SHOWN)
           : matching;
-      const total = stage === "created" ? todoTotal : counts[stage];
+      const total =
+        stage === "created"
+          ? todoTotal
+          : stage === "merged"
+            ? (board.mergedTotal ?? 0)
+            : counts[stage];
+      // An older CLI or server lists no Ready to ship tasks, and an empty one is noise.
+      if (stage === "merged" && total === 0) continue;
       // Tasks an agent is working on now; an idle or finished agent isn't cooking.
-      const cooking = matching.filter((task) =>
+      const cookingCount = matching.filter((task) =>
         (byTask.get(task.key) ?? []).some(
           (agent) => agent.status === "working",
         ),
       ).length;
       const collapsed = this.collapsed.has(stage) && !narrowed;
+      // A collapsed group still says it holds the task the window shows.
+      const hiddenInView = collapsed
+        ? matching.find(
+            (task) =>
+              (byTask.get(task.key) ?? []).some((agent) =>
+                scene.inView.has(agent.address),
+              ) ||
+              (!byTask.get(task.key)?.length &&
+                (scene.terminals.get(task.key) ?? []).some(
+                  (p) => p.tab === scene.tab,
+                )),
+          )
+        : null;
       sections.push(
         h_flex()
           .id(`group-${stage}`)
@@ -887,7 +1236,7 @@ export default class Clocktopus extends View {
                 `${label} · ${narrowed ? `${matching.length} of ${total}` : total}`,
               ),
           )
-          .when(cooking > 0, (el) =>
+          .when(cookingCount > 0, (el) =>
             el.child(
               h_flex()
                 .gap(5)
@@ -895,16 +1244,22 @@ export default class Clocktopus extends View {
                 .text_size(S().label)
                 .text_color(cooking(t))
                 .child(dot(cooking(t), 6))
-                .child(`${cooking} cooking`),
+                .child(`${cookingCount} cooking`),
+            ),
+          )
+          .when(Boolean(hiddenInView), (el) =>
+            el.child(
+              h_flex()
+                .gap(5)
+                .items_center()
+                .text_size(S().label)
+                .text_color(t.accent)
+                .child(`in view · ${hiddenInView.key}`),
             ),
           ),
       );
       if (collapsed) continue;
-      sections.push(
-        ...capped.map((task) =>
-          this.row(t, ctx, task, byTask.get(task.key) ?? []),
-        ),
-      );
+      sections.push(...capped.map((task) => this.row(t, ctx, task, scene)));
       if (!matching.length)
         sections.push(
           div()
@@ -953,6 +1308,19 @@ export default class Clocktopus extends View {
               note(
                 t,
                 `The oldest ${todoTotal - counts.created} are on the Work page.`,
+              ),
+            ),
+        );
+      }
+      if (stage === "merged" && !collapsed && total > counts.merged) {
+        sections.push(
+          div()
+            .px(14)
+            .pb(6)
+            .child(
+              note(
+                t,
+                `The ${total - counts.merged} merged longer ago are on the Work page.`,
               ),
             ),
         );
@@ -1104,12 +1472,21 @@ export default class Clocktopus extends View {
       .child(pill(ctx.on ?? "this computer", t));
   }
 
-  row(t, ctx, task, here) {
+  row(t, ctx, task, scene) {
+    const here = scene.byTask.get(task.key) ?? [];
     const open = this.open === task.key;
     const agent = mostUrgent(here);
     const look = agent ? statusLook(agent.status, t) : null;
-    const elsewhere =
-      !agent && task.working.length > 0 ? task.working[0] : null;
+    const terms = agent ? [] : (scene.terminals.get(task.key) ?? []);
+    const termShown = terms.some((p) => p.tab === scene.tab);
+    const termTarget = termShown ? null : (terms[0] ?? null);
+    const shownHere =
+      here.some((a) => scene.inView.has(a.address)) || termShown;
+    const moved = agent ? [] : (scene.moved.get(task.key) ?? []);
+    const away =
+      moved.find((m) => scene.inView.has(m.agent.address)) ?? moved[0] ?? null;
+    const awayShown = Boolean(away) && scene.inView.has(away.agent.address);
+    const elsewhere = agent ? null : workingElsewhere(task, away);
     const liveIds = new Set([
       ...Object.values(this.sessionIds),
       ...this.resumed,
@@ -1129,7 +1506,7 @@ export default class Clocktopus extends View {
     let sub;
     let subColor = t.muted;
     if (agent) {
-      sub = `${agent.name} ${look.label}${here.length > 1 ? ` · ${here.length} agents` : ""}`;
+      sub = `${agent.name} ${look.label}${here.length > 1 ? ` · ${here.length} agents` : ""}${shownHere ? " · in view" : ""}`;
       subColor = look.color;
     } else if (runningOutside) {
       sub = host
@@ -1141,6 +1518,10 @@ export default class Clocktopus extends View {
         ? `${agentName(elsewhere.agent)} working outside Herdr · ${ago(elsewhere.lastActivityAt, now)}`
         : `${elsewhere.userName ?? "Someone"}'s ${agentName(elsewhere.agent)} working`;
       subColor = cooking(t);
+    } else if (away) {
+      sub = `${away.agent.name} moved on to ${away.now ?? "another task"}${awayShown ? " · in view" : ""}`;
+    } else if (terms.length) {
+      sub = `${terms.length > 1 ? `${terms.length} terminals` : "Terminal"} on ${terms[0].branch}${termShown ? " · in view" : ""}`;
     } else {
       const bits = [];
       if (resumable)
@@ -1148,6 +1529,8 @@ export default class Clocktopus extends View {
           `resume ${agentName(resumable.session.agent)} · ${ago(resumable.session.lastActivityAt, now)}${machineLabel(resumable.machine)}`,
         );
       if (task.stale) bits.push(`quiet ${ago(task.lastActivityAt, now)}`);
+      const pullRequests = pullRequestNote(task.pullRequests);
+      if (pullRequests) bits.push(pullRequests);
       if (task.goal) bits.push(task.goal.ref);
       if (!bits.length && task.stageSince)
         bits.push(
@@ -1162,7 +1545,30 @@ export default class Clocktopus extends View {
         : dot(look.color, 8)
       : elsewhere || runningOutside
         ? dot(cooking(t), 8, true)
-        : dot(resumable ? t.accent : t.border, 8, !resumable);
+        : away
+          ? dot(statusLook(away.agent.status, t).color, 8, true)
+          : terms.length
+            ? dot(t.muted, 8, true)
+            : dot(resumable ? t.accent : t.border, 8, !resumable);
+
+    // Going to an agent already in view would change nothing on screen, so that click opens the
+    // row instead; so does one on a task whose session has moved on, which lists where it went.
+    const goTo = focusTarget(target, scene.inView);
+    let tip = null;
+    if (target)
+      tip = goTo
+        ? `Go to ${target.name}${target.where ? ` in ${target.where}` : ""}`
+        : `${target.name} is in view: click for its sessions`;
+    else if (here.length > 1) tip = "Several agents may be on it: pick one";
+    else if (host) tip = "Go to its terminal";
+    else if (termTarget) tip = `Go to its terminal on ${termTarget.branch}`;
+    else if (termShown) tip = "Its terminal is in view: click for its sessions";
+    else if (runningOutside)
+      tip = "Running in another app: open the row to open a copy here";
+    else if (away)
+      tip = `This task's ${away.agent.name} session is on ${away.now ?? "another task"} now`;
+    else if (resumable)
+      tip = `Resume ${agentName(resumable.session.agent)} in ${resumable.cwd}`;
 
     const head = h_flex()
       .id(`row-${task.key}`)
@@ -1174,28 +1580,13 @@ export default class Clocktopus extends View {
       .when(!open, (el) => el.items_center().hover((s) => s.bg(t.hover)))
       .rounded(8)
       .cursor_pointer()
-      .when(Boolean(target), (el) =>
-        el.tooltip(
-          `Go to ${target.name}${target.where ? ` in ${target.where}` : ""}`,
-        ),
-      )
-      .when(!target && here.length > 1, (el) =>
-        el.tooltip("Several agents may be on it: pick one"),
-      )
-      .when(!agent && Boolean(resumable), (el) =>
-        el.tooltip(
-          `Resume ${agentName(resumable.session.agent)} in ${resumable.cwd}`,
-        ),
-      )
-      .when(!agent && Boolean(host), (el) => el.tooltip("Go to its terminal"))
-      .when(!agent && Boolean(runningOutside) && !host, (el) =>
-        el.tooltip("Running in another app: open the row to open a copy here"),
-      )
+      .when(Boolean(tip), (el) => el.tooltip(tip))
       .on_mouse_down("left", stop)
       .on_click((_e, cx) => {
-        if (target) run("pane.focus", { pane: target.pane });
+        if (goTo) run("pane.focus", { pane: goTo.pane });
         else if (!agent && host) run("pane.focus", { terminal: host });
-        else if (!agent && resumable) {
+        else if (termTarget) run("pane.focus", { pane: termTarget.pane });
+        else if (!agent && !away && !termShown && resumable) {
           this.resume(task, resumable);
           cx.notify();
         } else {
@@ -1262,53 +1653,59 @@ export default class Clocktopus extends View {
             ),
           ),
       )
-      .when(task.stage === "created" && Boolean(this.starter), (el) =>
-        el.child(
-          iconButton(
-            `start-${task.key}`,
-            "play",
-            task.goal
-              ? `Start work on ${task.key} or its goal ${task.goal.ref}`
-              : `Start work on ${task.key} with ${this.starter.name}`,
-            t,
-            () => {
-              if (!task.goal) return startWork(ctx, this.starter, task.key);
-              const goal = this.board.goals.find(
-                (g) => g.ref === task.goal.ref,
+      .child(
+        iconButton(
+          `actions-${task.key}`,
+          "more",
+          "More actions",
+          t,
+          (_e, cx) => {
+            // One lookup at a time: a second click while a slow machine answers would open a
+            // second menu.
+            if (this.lookingUp) return;
+            this.lookingUp = true;
+            cx.spawn(async (cx) => {
+              const agentsHere = this.agentsHere;
+              // Herdr's `exec` waits up to 30 s; past 3 s the menu opens without the worktrees.
+              const result = await Promise.race([
+                sh(WORKTREES_SCRIPT, [], {
+                  cwd: ctx.folder || undefined,
+                  on: ctx.on,
+                }),
+                cx.sleep(3000).then(() => null),
+              ]);
+              this.lookingUp = false;
+              const worktree = worktreeChoice(
+                result?.code === 0 ? result.stdout : null,
+                task.key,
+                worktreeBranch(task),
               );
               openOverlay({
                 mod: "clocktopus",
                 kind: "popup",
-                width: 300,
-                height: 150,
+                width: ACTIONS_WIDTH,
+                height: actionsPopupHeight(agentsHere, Boolean(task.pageUrl)),
                 props: {
-                  role: "start",
+                  role: "actions",
                   ctx,
-                  agent: this.starter,
-                  task: { key: task.key, title: task.title },
-                  goal: { ...task.goal, count: goal?.keys.length ?? null },
+                  agents: agentsHere,
+                  task: {
+                    key: task.key,
+                    title: task.title,
+                    pageUrl: task.pageUrl,
+                  },
+                  worktree,
                 },
               });
-            },
-          ),
-        ),
-      )
-      .when(Boolean(task.pageUrl), (el) =>
-        el.child(
-          iconButton(
-            `web-${task.key}`,
-            "external",
-            "Open in Clocktopus",
-            t,
-            (_e, cx) => cx.open_url(task.pageUrl),
-          ),
+            });
+          },
         ),
       )
       .child(
         iconButton(
           `more-${task.key}`,
           open ? "chevron-down" : "chevron-right",
-          open ? "Less" : "Sessions and details",
+          open ? "Less" : "Sessions, pull requests and details",
           t,
           (_e, cx) => {
             this.open = open ? null : task.key;
@@ -1316,39 +1713,91 @@ export default class Clocktopus extends View {
           },
         ),
       );
-    if (!open) return div().mx(8).child(head);
+    // Every row has a 1px border so marking one doesn't shift it: `accent` for the task the window
+    // shows, `border` for one its session moved on from, else the row's own background.
+    const edge = shownHere
+      ? t.accent
+      : awayShown
+        ? t.border
+        : open
+          ? t.raised
+          : t.background;
+    if (!open)
+      return div().mx(8).rounded(8).border_1().border_color(edge).child(head);
     return v_flex()
       .mx(8)
       .rounded(8)
+      .border_1()
+      .border_color(edge)
       .bg(t.raised)
       .child(head)
-      .child(this.details(t, ctx, task, here));
+      .child(this.details(t, ctx, task, scene));
   }
 
-  details(t, ctx, task, here) {
+  details(t, ctx, task, scene) {
+    const here = scene.byTask.get(task.key) ?? [];
     const now = Date.now();
-    // Agents and sessions as one list: live agents, other people's, then your sessions with
-    // something to do (go to, resume, open a copy) before the ones without.
+    // Agents and sessions as one list: live agents on the task, live agents that moved on from
+    // it, other people's, then your sessions with something to do (go to, resume, open a copy)
+    // before the ones without.
     const items = [];
 
+    const tagOf = (agent) =>
+      agent.tabName
+        ? { space: agent.spaceName, tab: agent.tabName }
+        : agent.spaceName
+          ? { space: null, tab: agent.spaceName }
+          : null;
+    // A line going to a live agent; one already in view says so and goes nowhere.
+    const liveLine = (agent, id, status, marker, color) => {
+      const shown = scene.inView.has(agent.address);
+      return {
+        id,
+        marker,
+        name: agent.name,
+        status: `${status}${shown ? " · in view" : ""}`,
+        statusColor: color,
+        shown,
+        tag: tagOf(agent),
+        tip: shown
+          ? `In view${agent.where ? ` in ${agent.where}` : ""}`
+          : `Go to ${agent.name}${agent.where ? ` in ${agent.where}` : ""}`,
+        onClick: shown
+          ? undefined
+          : () => run("pane.focus", { pane: agent.pane }),
+      };
+    };
     for (const agent of here) {
       const look = statusLook(agent.status, t);
-      items.push({
-        id: `go-${agent.address}`,
-        marker: look.spin ? spinner(look.color) : dot(look.color),
-        name: agent.name,
-        status: `${look.label}${agent.via === "branch" ? " · by branch" : ""}`,
-        statusColor: look.color,
-        tag: agent.tabName
-          ? { space: agent.spaceName, tab: agent.tabName }
-          : agent.spaceName
-            ? { space: null, tab: agent.spaceName }
-            : null,
-        tip: `Go to ${agent.name}${agent.where ? ` in ${agent.where}` : ""}`,
-        onClick: () => run("pane.focus", { pane: agent.pane }),
-      });
+      items.push(
+        liveLine(
+          agent,
+          `go-${agent.address}`,
+          `${look.label}${agent.via === "branch" ? " · by branch" : ""}`,
+          look.spin ? spinner(look.color) : dot(look.color),
+          look.color,
+        ),
+      );
     }
-    for (const w of task.working.filter((w) => !w.mine)) {
+    for (const { agent, now: nowOn } of scene.moved.get(task.key) ?? []) {
+      const look = statusLook(agent.status, t);
+      items.push(
+        liveLine(
+          agent,
+          `moved-${agent.address}`,
+          `moved on to ${nowOn ?? "another task"}`,
+          dot(look.color, 8, true),
+          t.muted,
+        ),
+      );
+    }
+    // The other tasks the board lists this task's live sessions on, each a click opening its row.
+    const alsoOn = [...scene.moved]
+      .filter(([, ms]) =>
+        ms.some((m) => here.some((a) => a.address === m.agent.address)),
+      )
+      .map(([key]) => key);
+    for (const w of task.working.filter((other) => !other.mine)) {
       items.push({
         marker: dot(cooking(t), 8, true),
         name: `${w.userName ?? "Someone"}'s ${agentName(w.agent)}`,
@@ -1359,7 +1808,12 @@ export default class Clocktopus extends View {
 
     const liveIds = new Set(Object.values(this.sessionIds));
     const quiet = [];
-    for (const s of task.sessions.filter((s) => !liveIds.has(s.sessionId))) {
+    // A session with no transcript where its folder is has nothing to resume.
+    for (const s of task.sessions.filter(
+      (session) =>
+        !liveIds.has(session.sessionId) &&
+        this.found.get(session.sessionId)?.state !== "empty",
+    )) {
       const argv = resumeArgv(s);
       const where = this.found.get(s.sessionId);
       const hostOf = this.hosts.get(s.sessionId);
@@ -1450,44 +1904,57 @@ export default class Clocktopus extends View {
             items.map((item, i) => listRow(t, { ...item, first: i === 0 })),
           ),
       );
-    else parts.push(note(t, "No agent session has worked on it yet.").px(4));
-    if (task.stage === "created" && this.starter)
+    const pullRequests = task.pullRequests ?? [];
+    if (pullRequests.length)
+      parts.push(
+        v_flex()
+          .rounded(7)
+          .overflow_hidden()
+          .bg(t.background)
+          .border_1()
+          .border_color(t.border)
+          .children(
+            pullRequests.map((pr, i) => {
+              const look = pullRequestLook(pr.status, t);
+              const link = isWebUrl(pr.url);
+              return listRow(t, {
+                id: `pr-${task.key}-${pr.repository}-${pr.number}`,
+                first: i === 0,
+                marker: dot(look.color, 8, look.hollow),
+                name: `#${pr.number}`,
+                status: `${pr.status} · ${pr.title}`,
+                tip: link
+                  ? `Open ${pr.repository}#${pr.number} on ${providerName(pr.provider)}`
+                  : `${pr.repository}#${pr.number}`,
+                onClick: link ? (cx) => cx.open_url(pr.url) : undefined,
+                external: link,
+              });
+            }),
+          ),
+      );
+    if (alsoOn.length)
       parts.push(
         h_flex()
           .px(4)
           .gap(6)
           .flex_wrap()
-          .child(
-            button(
-              `start-task-${task.key}`,
-              `Start ${task.key}`,
-              t,
-              () => startWork(ctx, this.starter, task.key),
-              {
-                primary: true,
-                small: true,
-                icon: "play",
-                tip: `start-work with ${this.starter.name}`,
-              },
-            ),
-          )
-          .when(Boolean(task.goal), (el) =>
-            el.child(
+          .items_center()
+          .child(note(t, "Its session also worked on"))
+          .children(
+            alsoOn.map((key) =>
               button(
-                `start-goal-${task.key}`,
-                `Start goal ${task.goal.ref}`,
+                `also-${task.key}-${key}`,
+                key,
                 t,
-                () => startWork(ctx, this.starter, task.goal.ref),
-                {
-                  small: true,
-                  icon: "play",
-                  tip: `start-work on every task of ${task.goal.title}`,
+                (_e, cx) => {
+                  this.reveal(key, scene.stageOf.get(key));
+                  cx.notify();
                 },
-              ),
+                { small: true, h: 20, px: 6, tip: `Open ${key}` },
+              ).font_family(mono()),
             ),
           ),
       );
-
     return v_flex().px(6).pb(8).gap(8).children(parts);
   }
 
@@ -1608,7 +2075,9 @@ export default class Clocktopus extends View {
       : null;
     const inFlight =
       board?.status === "ok"
-        ? board.tasks.filter((x) => x.stage !== "created").length
+        ? board.tasks.filter(
+            (x) => x.stage === "in_progress" || x.stage === "in_review",
+          ).length
         : null;
     const text =
       !ctx || !age

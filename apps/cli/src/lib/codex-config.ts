@@ -245,8 +245,7 @@ function withoutOwnedTables(config: TomlTable): TomlTable {
 }
 
 // The `[otel]` log exporter an older `agent setup` wrote: ours when it carries an
-// ingest token. While it is in place Codex still sends spend itself, so the hook
-// does not (`reportCodexSpend`).
+// ingest token.
 export function readCodexLogExporter(config: TomlTable): {
   ours: boolean;
   token: string | null;

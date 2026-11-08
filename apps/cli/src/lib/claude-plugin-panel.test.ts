@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { PullRequestStatusSchema } from "@repo/cli-contract/pull-request";
 import { stripRemoteCredentials } from "@repo/cli-contract/remote-url";
 import {
   SessionPanelSchema,
@@ -16,8 +17,11 @@ import {
   environmentBanner,
   environmentOf,
   environmentTag,
+  followsMove,
+  isMovingCall,
   isRefreshingCall,
   messageOf,
+  PULL_REQUEST_COLOR,
   sessionRows,
   spendOf,
   sshHostOf,
@@ -49,6 +53,16 @@ const PANEL = {
     hours: 1.5,
     agentHours: 0.25,
     pageUrl: "https://clocktopus.example/acme/tasks/ACME-42",
+    pullRequests: [
+      {
+        provider: "github",
+        repository: "acme-co/acmeportal",
+        number: 12,
+        title: "Export invoices as CSV",
+        url: "https://github.com/acme-co/acmeportal/pull/12",
+        status: "draft",
+      },
+    ],
   },
   goal: {
     ref: "G-2",
@@ -185,6 +199,31 @@ describe("viewOf", () => {
     );
   });
 
+  it("reads a task's pull requests, skipping one without a number or a web link, and none from an older server", () => {
+    const view = viewOf(
+      {
+        ...PANEL,
+        task: {
+          ...PANEL.task,
+          pullRequests: [
+            ...PANEL.task.pullRequests,
+            { number: 13, status: "open" },
+            { number: 14, status: "open", url: "" },
+            { number: 15, status: "open", url: "file:///etc/passwd" },
+            "not a pull request",
+          ],
+        },
+      },
+      SESSION,
+    );
+    const { pullRequests, ...older } = PANEL.task;
+
+    expect(view.task?.pullRequests).toEqual(pullRequests);
+    expect(
+      viewOf({ ...PANEL, task: older }, SESSION).task?.pullRequests,
+    ).toEqual([]);
+  });
+
   it("reads an answer without attribution as an unknown session", () => {
     const view = viewOf(
       { ...PANEL, attribution: undefined, goal: null },
@@ -210,7 +249,15 @@ describe("viewOf", () => {
         organizationSlug: "acme",
       },
       taskKey: "ACME-42",
-      task: { ...PANEL.task, stage: "in_progress" },
+      task: {
+        ...PANEL.task,
+        stage: "in_progress",
+        pullRequests: PANEL.task.pullRequests.map((pullRequest) => ({
+          ...pullRequest,
+          status: "draft" as const,
+          openedAt: "2026-10-26T08:00:00.000Z",
+        })),
+      },
       branchTask: null,
       attribution: {
         ...PANEL.attribution,
@@ -487,6 +534,12 @@ describe("stages and amounts", () => {
     );
   });
 
+  it("colours every pull request status the server answers with", () => {
+    expect(Object.keys(PULL_REQUEST_COLOR).sort()).toEqual(
+      [...PullRequestStatusSchema.options].sort(),
+    );
+  });
+
   it("keeps a stage it doesn't know as it came, in the muted colour", () => {
     expect(stageOf("parked")).toBe("parked");
     expect(colorOf("parked")).toBe("inactive");
@@ -754,5 +807,51 @@ describe("environmentBanner", () => {
       sessionApiUrl: "https://staging.clocktopus.app",
     };
     expect(environmentTag(stale)).toBe("▲ restart Claude Code");
+  });
+});
+
+describe("isMovingCall", () => {
+  it("is true for the session's own branch or worktree change", () => {
+    expect(isMovingCall("Bash", "git switch -c acme-42-csv")).toBe(true);
+    expect(isMovingCall("EnterWorktree", null)).toBe(true);
+    expect(isMovingCall("ExitWorktree", null)).toBe(true);
+  });
+
+  it("is false for a Clocktopus tool call or a command that moves nothing", () => {
+    expect(
+      isMovingCall("mcp__plugin_clocktopus_clocktopus__link_session", null),
+    ).toBe(false);
+    expect(isMovingCall("Bash", "git status")).toBe(false);
+  });
+});
+
+describe("followsMove", () => {
+  const main = { root: "/w/acme", isWorktree: false, branch: "main" };
+  const worktree = {
+    root: "/w/acme-42",
+    isWorktree: true,
+    branch: "dana/acme-42-csv",
+  };
+
+  it("follows a branch switch within the session's checkout", () => {
+    expect(followsMove(main, { ...main, branch: "dana/acme-42-csv" })).toBe(
+      true,
+    );
+  });
+
+  it("follows a move into a linked worktree", () => {
+    expect(followsMove(main, worktree)).toBe(true);
+  });
+
+  it("doesn't follow a move back into a main checkout other sessions share", () => {
+    expect(
+      followsMove(worktree, { ...main, branch: "dana/acme-9-other" }),
+    ).toBe(false);
+  });
+
+  it("doesn't follow when nothing changed, or a place is unknown", () => {
+    expect(followsMove(main, main)).toBe(false);
+    expect(followsMove(null, worktree)).toBe(false);
+    expect(followsMove(main, null)).toBe(false);
   });
 });

@@ -105,6 +105,8 @@ type World = {
   remote?: string | null;
   // Whether the session runs in a linked worktree rather than the main checkout.
   worktree?: boolean;
+  // What a tool call changes while it runs, as a `git switch` changes `branch`.
+  onTool?: (tool: string, command: string) => void;
   // `git worktree list --porcelain`'s; none when absent.
   worktrees?: string;
   // Whether Clocktopus has seen the session, and the task it last tied it to.
@@ -371,12 +373,13 @@ function engine(on: On, world: World) {
     };
   });
   // `__failing_tool` and a Bash command running `false` report an error.
-  on("tool.call", (_, e) =>
-    e.tool.endsWith("__failing_tool") ||
-    (e.tool === "Bash" && /\bfalse\b/.test(String({ ...e }.command)))
+  on("tool.call", (_, e) => {
+    world.onTool?.(e.tool, String({ ...e }.command ?? ""));
+    return e.tool.endsWith("__failing_tool") ||
+      (e.tool === "Bash" && /\bfalse\b/.test(String({ ...e }.command)))
       ? { result: {}, text: "failed", isError: true }
-      : { result: {}, text: "{}" },
-  );
+      : { result: {}, text: "{}" };
+  });
 
   return { calls, connects, clock, opens, opened, copied, cli, herdr };
 }
@@ -717,13 +720,13 @@ test("a server that never connects shows its error once the retries run out", as
   expect(await footer($)).toBe("Clocktopus: clocktopus: failed");
 });
 
-test("the checkout’s HEAD is watched, and a branch switch there refreshes", async ($, on) => {
+test("the checkout’s HEAD is watched, and a branch switch there refreshes without following it, since another session may have made it", async ($, on) => {
   const world: World = {
     branch: "main",
     isKnown: true,
     shares: { "ACME-42": 1 },
   };
-  const { clock } = engine(on, world);
+  const { calls, clock } = engine(on, world);
   await $.session.start(START);
   const started = await $.classic.SessionStart({ source: "startup" });
   expect(started.watchPaths?.[0]).toBe("/work/acme-portal/.git/HEAD");
@@ -737,6 +740,7 @@ test("the checkout’s HEAD is watched, and a branch switch there refreshes", as
   });
   await clock.settle();
   expect(await footer($)).toBe("ACME-42 · in progress · G-2 1/4 · attributed");
+  expect(calls.at(-1)?.args).not.toHaveProperty("followBranch");
 });
 
 test("the session starts this machine's realtime watcher and refreshes on a change hint", async ($, on) => {
@@ -774,26 +778,7 @@ test("the session starts this machine's realtime watcher and refreshes on a chan
   expect(calls.length).toBe(before + 1);
 });
 
-test("moving to another directory refreshes", async ($, on) => {
-  const world: World = {
-    branch: "main",
-    isKnown: true,
-    shares: { "ACME-42": 1 },
-  };
-  const { clock } = engine(on, world);
-  await $.session.start(START);
-  await clock.settle();
-
-  world.branch = "dana/acme-42-export";
-  await $.classic.CwdChanged({
-    old_cwd: "/work/acme-portal",
-    new_cwd: "/work/acme-portal-export",
-  });
-  await clock.settle();
-  expect(await footer($)).toBe("ACME-42 · in progress · G-2 1/4 · attributed");
-});
-
-test("a branch switch in Bash and EnterWorktree refresh", async ($, on) => {
+test("moving to another directory refreshes and follows the branch there", async ($, on) => {
   const world: World = {
     branch: "main",
     isKnown: true,
@@ -804,17 +789,136 @@ test("a branch switch in Bash and EnterWorktree refresh", async ($, on) => {
   await clock.settle();
 
   world.branch = "dana/acme-42-export";
+  await $.classic.CwdChanged({
+    old_cwd: "/home/dana/work/acme-portal",
+    new_cwd: "/home/dana/work/acme-portal-export",
+  });
+  await clock.settle();
+  expect(await footer($)).toBe("ACME-42 · in progress · G-2 1/4 · attributed");
+  expect(calls.at(-1)?.args).toMatchObject({ followBranch: true });
+});
+
+test("moving within a checkout, or back to the main one, refreshes without following its branch", async ($, on) => {
+  const world: World = {
+    branch: "main",
+    isKnown: true,
+    shares: { "ACME-42": 1 },
+  };
+  const { calls, clock } = engine(on, world);
+  await $.session.start(START);
+  await clock.settle();
+
+  world.branch = "dana/acme-9-other-session";
+  await $.classic.CwdChanged({
+    old_cwd: "/work/acme-portal",
+    new_cwd: "/work/acme-portal/packages/api",
+  });
+  await clock.settle();
+  expect(calls.at(-1)?.args).not.toHaveProperty("followBranch");
+
+  await $.classic.CwdChanged({
+    old_cwd: "/home/dana/work/acme-portal-export",
+    new_cwd: "/work/acme-portal",
+  });
+  await clock.settle();
+  expect(calls.at(-1)?.args).not.toHaveProperty("followBranch");
+});
+
+test("a branch switch in Bash and EnterWorktree refresh and follow the branch", async ($, on) => {
+  const world: World = {
+    branch: "main",
+    isKnown: true,
+    shares: { "ACME-42": 1 },
+  };
+  const { calls, clock } = engine(on, world);
+  await $.session.start(START);
+  await clock.settle();
+
+  world.onTool = (tool, command) => {
+    if (command.startsWith("git switch")) world.branch = "dana/acme-42-export";
+    if (tool === "EnterWorktree") world.worktree = true;
+  };
   await $.tool.call({
     tool: "Bash",
     command: "git switch dana/acme-42-export",
   });
   await clock.settle();
   expect(await footer($)).toBe("ACME-42 · in progress · G-2 1/4 · attributed");
+  expect(calls.at(-1)?.args).toMatchObject({ followBranch: true });
 
   const before = calls.length;
   await $.tool.call({ tool: "EnterWorktree", name: "acme-42" });
   await clock.settle();
   expect(calls.length).toBe(before + 1);
+  expect(calls.at(-1)?.args).toMatchObject({ followBranch: true });
+});
+
+test("a git command that moves nothing, ExitWorktree back to the main checkout and a subagent's switch don't follow the branch", async ($, on) => {
+  const world: World = {
+    branch: "dana/acme-5-own",
+    worktree: true,
+    isKnown: true,
+    shares: { "ACME-5": 1 },
+  };
+  const { calls, clock } = engine(on, world);
+  await $.session.start(START);
+  await clock.settle();
+
+  // Another session switched the main checkout while this one sat in its worktree.
+  world.onTool = (tool) => {
+    if (tool === "ExitWorktree") {
+      world.worktree = false;
+      world.branch = "dana/acme-9-other-session";
+    }
+  };
+  await $.tool.call({ tool: "ExitWorktree" });
+  await clock.settle();
+  expect(calls.at(-1)?.args).not.toHaveProperty("followBranch");
+
+  await $.tool.call({ tool: "Bash", command: "git worktree list" });
+  await clock.settle();
+  expect(calls.at(-1)?.args).not.toHaveProperty("followBranch");
+
+  world.onTool = () => {
+    world.branch = "dana/acme-11-subagent";
+  };
+  await $.tool.call({
+    tool: "Bash",
+    command: "git switch dana/acme-11-subagent",
+    agentId: "agent-1",
+  });
+  await clock.settle();
+  expect(calls.at(-1)?.args).not.toHaveProperty("followBranch");
+});
+
+test("a move whose refresh fails is still followed by the next refresh", async ($, on) => {
+  const world: World = {
+    branch: "main",
+    isKnown: true,
+    shares: { "ACME-42": 1 },
+  };
+  const { calls, clock } = engine(on, world);
+  await $.session.start(START);
+  await clock.settle();
+
+  world.isFailing = true;
+  world.onTool = () => {
+    world.branch = "dana/acme-42-export";
+  };
+  await $.tool.call({
+    tool: "Bash",
+    command: "git switch dana/acme-42-export",
+  });
+  await clock.settle();
+  expect(calls.at(-1)?.args).toMatchObject({ followBranch: true });
+
+  world.isFailing = false;
+  await $.classic.FileChanged({
+    file_path: "/work/acme-portal/.git/HEAD",
+    event: "change",
+  });
+  await clock.settle();
+  expect(calls.at(-1)?.args).toMatchObject({ followBranch: true });
 });
 
 test("writing or a failed cd in another worktree of the repository tells the model once to move the session there", async ($, on) => {
@@ -878,13 +982,13 @@ test("a change to another watched file does not refresh", async ($, on) => {
   expect(calls.length).toBe(before);
 });
 
-test("any Clocktopus tool call the model makes refreshes once it finishes", async ($, on) => {
+test("any Clocktopus tool call the model makes refreshes once it finishes, without following the branch", async ($, on) => {
   const world: World = {
     branch: "dana/acme-42-export",
     isKnown: true,
     shares: {},
   };
-  const { clock } = engine(on, world);
+  const { calls, clock } = engine(on, world);
   await $.session.start(START);
   await clock.settle();
   expect(await footer($)).toBe(
@@ -898,6 +1002,7 @@ test("any Clocktopus tool call the model makes refreshes once it finishes", asyn
   });
   await clock.settle();
   expect(await footer($)).toBe("ACME-42 · in progress · G-2 1/4 · attributed");
+  expect(calls.at(-1)?.args).not.toHaveProperty("followBranch");
 });
 
 test("a failed Clocktopus call or another server’s call does not refresh", async ($, on) => {

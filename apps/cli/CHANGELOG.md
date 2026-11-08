@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.14.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.13.0...cli-v0.14.0) (2026-11-08)
+
+
+### Features
+
+* **clk-112:** mark the Herdr panel's task in view and a session's other tasks ([b49a6b7](https://github.com/blastin-dev/clocktopus/commit/b49a6b7b8d0efa980ab5078dd7cc4297abfcf976))
+* **clk-112:** mark the Herdr panel's task in view and a session's other tasks ([cef9ba7](https://github.com/blastin-dev/clocktopus/commit/cef9ba7bc51efc13a8e2d54c47995367fa7b06da))
+* **clk-112:** rename the tabs the Herdr panel opened to the task their agent is on now ([2e70998](https://github.com/blastin-dev/clocktopus/commit/2e7099813d731a6cb242840554c7bf3443f878bd))
+* **clk-115:** place start-work's worktree for every agent, and keep agents that can't move in the checkout ([eb5aade](https://github.com/blastin-dev/clocktopus/commit/eb5aade5717ce0823a8a92cf8faeb58628523c0d))
+* **clk-115:** start-work works in a worktree by default ([1b8dc7d](https://github.com/blastin-dev/clocktopus/commit/1b8dc7dd4dc0ecd4e81aa048117b69dda3fb26ee))
+* **clk-115:** start-work works in a worktree by default ([2aad3d8](https://github.com/blastin-dev/clocktopus/commit/2aad3d8645c3c65952d68f7e547a62aba3a3be7b))
+* **clk-117:** list ready to ship tasks in the Herdr panel and clocktopus tasks ([af41f12](https://github.com/blastin-dev/clocktopus/commit/af41f12d761aaf96959fcbe33d1d2dedf7e1d7fe))
+* **clk-117:** list ready to ship tasks in the Herdr panel and clocktopus tasks ([9db1022](https://github.com/blastin-dev/clocktopus/commit/9db1022c374b844002b8c68d63afa3940c656c26))
+* **clk-118:** a More actions menu on every Herdr task row, opening a worktree with a terminal or an agent ([18f1ec0](https://github.com/blastin-dev/clocktopus/commit/18f1ec0eacdc1d23d038a8ed820d45aa3fa079ee))
+* **clk-118:** ask to open the task's worktree or name another when New worktree finds one in the Herdr panel ([6580b97](https://github.com/blastin-dev/clocktopus/commit/6580b9774ff7955c814d472cdef50282a7407293))
+* **clk-118:** leave out of the Herdr panel a Claude Code session that ended before its first message ([e5ffcee](https://github.com/blastin-dev/clocktopus/commit/e5ffcee9ebe1175630707516dd328995db4144ab))
+* **clk-118:** let the Herdr panel start a task in any installed agent ([5e1ec2d](https://github.com/blastin-dev/clocktopus/commit/5e1ec2dabbb3800a93b00bb2c946178304cb590c))
+* **clk-118:** list every worktree of the task in the Herdr panel's worktree dialog, each one click to open ([51f2166](https://github.com/blastin-dev/clocktopus/commit/51f216664d6bb776b48339b94ab6119e01777be6))
+* **clk-118:** list the agents Clocktopus tracks first in the Herdr More actions menu ([b3486a5](https://github.com/blastin-dev/clocktopus/commit/b3486a5d0a1e86f85111afafa9ab3f420be701c7))
+* **clk-118:** open the chosen agent in the task's new worktree from the Herdr More actions menu ([7af980d](https://github.com/blastin-dev/clocktopus/commit/7af980d71ba459ad7d35a3eb88c45fcc496b9588))
+* **clk-118:** open the task's existing worktree from the Herdr More actions menu, or a new one under the next free name ([36a37ab](https://github.com/blastin-dev/clocktopus/commit/36a37abb690f44c55136a270beba174b6f588961))
+* **clk-118:** replace the Herdr panel's Start menu with a More actions menu on every row ([7b7653d](https://github.com/blastin-dev/clocktopus/commit/7b7653d5d21eddcc8c56e142c3ecff2221092517))
+* **clk-118:** start a Herdr panel task in any installed agent, not only Claude Code ([a42284a](https://github.com/blastin-dev/clocktopus/commit/a42284aae0b40bdfcdc00c79069afac77f20ae7b))
+* **clk-118:** start a task from one menu in the Herdr panel, with a new worktree first ([29cc3d6](https://github.com/blastin-dev/clocktopus/commit/29cc3d65684fb50fd3422e03cba9bf98344bd096))
+* **clk-118:** start a task from one menu in the Herdr panel, with a new worktree first ([58a60e5](https://github.com/blastin-dev/clocktopus/commit/58a60e569881bcbf7483768d8d14f18a9fdfb2a3))
+* **clk-122:** show each task's pull requests in the Herdr and Claude Code panels ([309accb](https://github.com/blastin-dev/clocktopus/commit/309accbd028f420627af55d097d274823d018d17))
+* **clk-122:** show each task's pull requests in the Herdr and Claude Code panels ([d028c62](https://github.com/blastin-dev/clocktopus/commit/d028c625ce58290daf9786416794e2baf7919e83))
+
+
+### Bug Fixes
+
+* **clk-112:** keep a session of yours working outside Herdr once the moved-on agent is no longer current ([f6bb866](https://github.com/blastin-dev/clocktopus/commit/f6bb866c60a978dbe080f809323b861cac139995))
+* **clk-112:** keep the open task when switching to a space at another checkout ([024d2bf](https://github.com/blastin-dev/clocktopus/commit/024d2bffaa930dcecd05aee0195a0ce76992c44a))
+* **clk-112:** mark the task and session in view with an accent border, not a fill ([0534773](https://github.com/blastin-dev/clocktopus/commit/0534773de97610b1347abf63579851c6671e60ba))
+* **clk-112:** show a moved-on agent over its stale board entry, and reveal the rows its session links to ([1ecb3f3](https://github.com/blastin-dev/clocktopus/commit/1ecb3f3c2d86bad450258d97661a31443d99366e))
+* **clk-113:** keep the Herdr panel rendering while an agent is working on a listed task ([3169bdd](https://github.com/blastin-dev/clocktopus/commit/3169bdd4d9bd4a65967077e86ab9412eef0777c4))
+* **clk-113:** keep the Herdr panel rendering while an agent is working on a listed task ([127a412](https://github.com/blastin-dev/clocktopus/commit/127a412c71d28b060c9322f1099d7d363a59de4a))
+* **clk-115:** keep the worktree start-work leaves, and defer case 2 to case 3 ([4b990e3](https://github.com/blastin-dev/clocktopus/commit/4b990e300be86d9ccf58d5fb014e977bed7b0641))
+* **clk-115:** name the worktree, its base and its setup in start-work ([9fabeea](https://github.com/blastin-dev/clocktopus/commit/9fabeeaf475ba3b109198437466236672ce50b68))
+* **clk-118:** cap the Herdr More actions menu at 491px and scroll its agents ([d60c1d5](https://github.com/blastin-dev/clocktopus/commit/d60c1d5bcdb533ef6508d56b7dfe525066541b56))
+* **clk-118:** draw the Herdr board before the installed agents arrive ([30a4334](https://github.com/blastin-dev/clocktopus/commit/30a433418f8ff7b851b0573a69a1d1d2b75318a5))
+* **clk-118:** keep the one-agent start popup a single click, with room to wrap ([ae1d9dd](https://github.com/blastin-dev/clocktopus/commit/ae1d9dd92ee3cf200115fd65266757f071487a08))
+* **clk-118:** list the installed agents in the Herdr More actions menu as soon as the board loads ([9905ec2](https://github.com/blastin-dev/clocktopus/commit/9905ec2f58eafde9babb79de4577a1c4a0e8cea0))
+* **clk-118:** tie a Herdr terminal with no agent to the task its branch names, and stop counting the agent block's agent in view over it ([338a462](https://github.com/blastin-dev/clocktopus/commit/338a462048f365f42a694ebf3898a8dfd4f718d6))
+* **clk-118:** tighten the Herdr worktree dialog and terminal rows after review ([68d68e5](https://github.com/blastin-dev/clocktopus/commit/68d68e51b3f00b1c9131c831466857175f718978))
+* **clk-118:** wait at most 3 s for the Herdr menu's worktree lookup, and find a worktree's space against every worktree ([8391107](https://github.com/blastin-dev/clocktopus/commit/8391107a31c05f28a6e2cb5dc8a9898dd6cef153))
+* **clk-120:** follow a branch only when the session's own move changed it ([a4b570e](https://github.com/blastin-dev/clocktopus/commit/a4b570ecfa4bf6f2a917b8bddbc574cbd09c1d3f))
+* **clk-120:** stop sessions sharing a checkout from being tied to each other's tasks ([c8ac317](https://github.com/blastin-dev/clocktopus/commit/c8ac31789c385a46a7f02bdfb6d26ba4bce05de1))
+* **clk-120:** tie a session to its branch's task from the panel only after the session moved itself ([df5f710](https://github.com/blastin-dev/clocktopus/commit/df5f7102f5c7fb506aaa44fb8f1e3a6b2b2e311c))
+* **clk-121:** keep the Codex exporter reader's comment true to the hook ([8c05347](https://github.com/blastin-dev/clocktopus/commit/8c05347201d3f299a313da30821bd5ca9d0e3e5b))
+* **clk-121:** report Codex spend through the hook even while an older setup's exporter remains ([ada2b78](https://github.com/blastin-dev/clocktopus/commit/ada2b78dccae2236f98c5290e76ce760d97abb25))
+* **clk-122:** open a task's pull request from the panels only at an http(s) link ([5587b77](https://github.com/blastin-dev/clocktopus/commit/5587b77dbf2b433f245cf357e5ebabcfe3cb3225))
+
 ## [0.13.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.12.0...cli-v0.13.0) (2026-11-07)
 
 

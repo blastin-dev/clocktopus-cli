@@ -32,8 +32,11 @@ SessionEnd hooks stay in `~/.claude/settings.json`, written by `agent setup`.
 
 In Claude Code only, the plugin shows which task the session counts toward. A
 host that runs Claude Code through the SDK runs the hooks but draws none of it.
-The panel refreshes after a branch or worktree change, and a refresh on a branch
-naming a task the session was never tied to ties it there. Moving back to an
+The panel refreshes after a branch or worktree change. When the session itself
+switched branch within its checkout, or moved into a linked worktree (its own
+`git switch` or `checkout`, `EnterWorktree`, or change of directory), a branch naming a task the session was never tied to ties it there.
+A move back into a main checkout, a subagent's switch, and a branch another
+session switched a shared checkout to only refresh the panel. Moving back to an
 earlier task's branch leaves the session on the newest task it was tied to.
 When the session is tied to a task its own branch doesn't name, and exactly one
 worktree has that task's branch checked out, the panel shows
@@ -55,7 +58,9 @@ and `plugin.json` no `types`.
   task other than the one its branch names, and `· CLI upgrade required` when
   the server no longer serves the CLI.
 - **Pane:** the task with its stage in the web app's colours and an **Open**
-  button for its page, the human and agent time on it, then this session: its
+  button for its page, the human and agent time on it, its pull requests
+  newest first (number, status and title, each a button opening it at GitHub
+  or Bitbucket), then this session: its
   id (**Copy id** copies it whole), whether it is attributed and to which task,
   the branch, the worktree, its spend and when it last reported, and the goal's
   open tasks in order (▶ this session's, ● started, ○ not started), and the

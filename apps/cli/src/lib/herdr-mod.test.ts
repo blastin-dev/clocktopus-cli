@@ -12,6 +12,7 @@ import {
   herdrLabelArgs as pluginLabelArgs,
 } from "../../claude-plugin/hooks/panel";
 import {
+  actionsPopupHeight,
   agentsByTask,
   ago,
   BOARD_HINTS,
@@ -19,26 +20,40 @@ import {
   clickTarget,
   environmentBanner,
   filterTasks,
+  focusTarget,
+  followedTabName,
   forkArgv,
   goalKeys,
+  installedAgents,
+  inView,
   isBoardHint,
+  isWebUrl,
   labelledSessions,
   labelledTasks,
   liveAgents,
   localSessionsScript,
   mostUrgent,
+  movedOn,
   parseBoard,
   parseLocalSessions,
   pollEvery,
+  providerName,
+  pullRequestNote,
   resumeArgv,
   resumeChoice,
   resumeSpace,
   spaceFolder,
-  startAgent,
-  startPrompt,
+  tabRenames,
   terminalOf,
+  terminalsByTask,
+  TRACKED_AGENTS,
   withAgentStages,
+  workingElsewhere,
+  worktreeBranch,
+  worktreeChoice,
+  worktreeSpace,
 } from "../../herdr/mods/clocktopus/model.js";
+import { AGENTS } from "./agents.js";
 import { HERDR_SESSION_LABEL, HERDR_TASK_LABEL } from "./herdr-terminal.js";
 import { BOARD_TOPICS } from "./realtime-watch.js";
 
@@ -72,17 +87,24 @@ function task(key: string, overrides: Partial<BoardTask> = {}): BoardTask {
     pageUrl: null,
     working: [],
     sessions: [],
+    pullRequests: [],
     ...overrides,
   };
 }
 
 const program = { name: "Claude Code" };
 
-function herdrAgent(address: string, pane: string, status = "working") {
+function herdrAgent(
+  address: string,
+  pane: string,
+  status = "working",
+  tab = "tab-1",
+) {
   return {
     address,
     pane,
     space: "space-1",
+    tab,
     status,
     app: "claude-code",
     program,
@@ -298,6 +320,200 @@ describe("agentsByTask and clickTarget", () => {
   });
 });
 
+describe("a session tied to several tasks", () => {
+  const panes = [
+    { pane: "p1", cwd: "/home/dana/acme-portal", branch: "dana/acme-1-export" },
+    { pane: "p2", cwd: "/home/dana/acme-wt", branch: "dana/acme-4-totals" },
+  ];
+  const tasks = [
+    task("ACME-1", {
+      sessions: [session({ sessionId: "session-1", current: false })],
+    }),
+    task("ACME-2", {
+      sessions: [session({ sessionId: "session-1", current: true })],
+    }),
+    task("ACME-3", {
+      sessions: [session({ sessionId: "session-1", current: false })],
+    }),
+    task("ACME-4"),
+  ];
+  const live = liveAgents(
+    [herdrAgent("t1", "p1"), herdrAgent("t2", "p2", "idle", "tab-2")],
+    panes,
+    { t1: "session-1" },
+  );
+  const byTask = agentsByTask(tasks, live);
+
+  it("puts the agent on its current task, and marks the others as moved on from", () => {
+    const moved = movedOn(tasks, byTask, live);
+
+    expect(byTask.get("ACME-2")?.map((agent) => agent.address)).toEqual(["t1"]);
+    expect(
+      [...moved].map(([key, ms]) => [
+        key,
+        ms.map((m) => `${m.agent.address}>${m.now}`),
+      ]),
+    ).toEqual([
+      ["ACME-1", ["t1>ACME-2"]],
+      ["ACME-3", ["t1>ACME-2"]],
+    ]);
+  });
+
+  it("counts a task the board still calls current as moved on from once the task label names another", () => {
+    const labelled = liveAgents(
+      [herdrAgent("t1", "p1")],
+      panes,
+      { t1: "session-1" },
+      {
+        t1: "ACME-3",
+      },
+    );
+    const moved = movedOn(tasks, agentsByTask(tasks, labelled), labelled);
+
+    expect([...moved.keys()]).toEqual(["ACME-1", "ACME-2"]);
+    expect(moved.get("ACME-2")?.[0]?.now).toBe("ACME-3");
+  });
+
+  it("shows the agents in the window's shown tab, and the one an agent block shows", () => {
+    expect([...inView(live, { tab: "tab-1", agent: null })]).toEqual(["t1"]);
+    expect([...inView(live, { tab: "tab-9", agent: "t2" })]).toEqual(["t2"]);
+    expect([...inView(live, null)]).toEqual([]);
+  });
+
+  it("leaves out the agent block's agent while the shown tab has a terminal of its own", () => {
+    expect([
+      ...inView(live, { tab: "tab-9", agent: "t2" }, [
+        { tab: "tab-9", terminal: "t9" },
+      ]),
+    ]).toEqual([]);
+    expect([
+      ...inView(live, { tab: "tab-9", agent: "t2" }, [
+        { tab: "tab-9", terminal: null },
+      ]),
+    ]).toEqual(["t2"]);
+  });
+
+  it("ties a terminal with no agent in it to the task its branch names", () => {
+    const tasks = [task("ACME-8"), task("ACME-9")];
+    const panes = [
+      {
+        pane: "p1",
+        terminal: "t1",
+        tab: "tab-1",
+        cwd: "/w/a",
+        branch: "acme-8-export",
+      },
+      {
+        pane: "p2",
+        terminal: "t2",
+        tab: "tab-2",
+        cwd: "/w/b",
+        branch: "dana/acme-8-export-2",
+      },
+      {
+        pane: "p3",
+        terminal: "t3",
+        tab: "tab-3",
+        cwd: "/w/c",
+        branch: "acme-8-agent",
+      },
+      {
+        pane: "p4",
+        terminal: null,
+        tab: "tab-4",
+        cwd: null,
+        branch: "acme-9-x",
+      },
+      {
+        pane: "p5",
+        terminal: "t5",
+        tab: "tab-5",
+        cwd: "/w/e",
+        branch: "acme-77-other",
+      },
+      {
+        pane: "p6",
+        terminal: "t6",
+        tab: "tab-6",
+        cwd: "/w/f",
+        branch: "develop",
+      },
+    ];
+    const byTask = terminalsByTask(tasks, panes, [{ pane: "p3" }]);
+    expect([...byTask.keys()]).toEqual(["ACME-8"]);
+    expect(byTask.get("ACME-8")?.map((p) => p.pane)).toEqual(["p1", "p2"]);
+  });
+
+  it("reads your session as the moved-on agent only while the board still has it current there", () => {
+    const yours = {
+      agent: "codex_cli",
+      userName: "Dana",
+      mine: true,
+      lastActivityAt: null,
+    };
+    const away = { agent: { sessionId: "session-1" } };
+    const lagging = task("ACME-5", {
+      working: [yours],
+      sessions: [session({ sessionId: "session-1", current: true })],
+    });
+    const caughtUp = task("ACME-5", {
+      working: [yours],
+      sessions: [session({ sessionId: "session-1", current: false })],
+    });
+
+    expect(workingElsewhere(lagging, away)).toBeNull();
+    expect(workingElsewhere(caughtUp, away)).toBe(yours);
+    expect(workingElsewhere(lagging, null)).toBe(yours);
+  });
+
+  it("goes to the task's agent on a click, and leaves it to open the row when that agent is in view", () => {
+    const target = clickTarget(byTask.get("ACME-2") ?? []);
+
+    expect(focusTarget(target, inView(live, { tab: "tab-2" }))?.address).toBe(
+      "t1",
+    );
+    expect(focusTarget(target, inView(live, { tab: "tab-1" }))).toBeNull();
+  });
+});
+
+describe("tabs following their agent's task", () => {
+  it("renames a tab named after a task or a goal, and leaves a number or a person's name alone", () => {
+    expect(followedTabName("ACME-1", "ACME-2", [])).toBe("ACME-2");
+    expect(followedTabName("G-3", "ACME-2", ["G-3"])).toBe("G-3 · ACME-2");
+    expect(followedTabName("G-3 · ACME-1", "ACME-2", [])).toBe("G-3 · ACME-2");
+    expect(followedTabName("ACME-2", "ACME-2", [])).toBeNull();
+    expect(followedTabName("2", "ACME-2", [])).toBeNull();
+    expect(followedTabName("fix login", "ACME-2", [])).toBeNull();
+  });
+
+  it("follows the label or the session, never a branch alone or a tab split across tasks", () => {
+    const tasks = [
+      task("ACME-1"),
+      task("ACME-2", {
+        sessions: [session({ sessionId: "session-2", current: true })],
+      }),
+    ];
+    const live = liveAgents(
+      [
+        { ...herdrAgent("t1", "p1", "working", "tab-1"), tab_name: "ACME-9" },
+        { ...herdrAgent("t2", "p2", "working", "tab-2"), tab_name: "ACME-9" },
+        { ...herdrAgent("t3", "p3", "working", "tab-3"), tab_name: "ACME-9" },
+        { ...herdrAgent("t4", "p4", "working", "tab-3"), tab_name: "ACME-9" },
+      ],
+      [
+        { pane: "p2", cwd: "/x", branch: "dana/acme-1-export" },
+        { pane: "p4", cwd: "/x", branch: "dana/acme-1-export" },
+      ],
+      { t1: "session-2", t3: "session-2" },
+      { t4: "ACME-1" },
+    );
+
+    expect(tabRenames(live, agentsByTask(tasks, live), [])).toEqual([
+      ["tab-1", "ACME-2"],
+    ]);
+  });
+});
+
 describe("mostUrgent", () => {
   it("ranks an agent that needs the person above one that is working", () => {
     const live = liveAgents(
@@ -324,7 +540,7 @@ describe("resumeArgv", () => {
 });
 
 describe("localSessionsScript", () => {
-  it("finds, under the home-relative folders the hook reports, the sessions on the machine and those still running", () => {
+  it("finds, under the home-relative folders the hook reports, the sessions on the machine, those still running and those with no transcript", () => {
     const home = mkdtempSync(join(tmpdir(), "clocktopus-herdr-"));
     const checkout = join(home, "acme.portal");
     mkdirSync(checkout);
@@ -352,7 +568,7 @@ describe("localSessionsScript", () => {
     const { script, args } = localSessionsScript([
       session({ sessionId: "claude-here", cwd: "~/acme.portal" }),
       session({ sessionId: "claude-running", cwd: "~/acme.portal" }),
-      session({ sessionId: "claude-elsewhere", cwd: "~/acme.portal" }),
+      session({ sessionId: "claude-unused", cwd: "~/acme.portal" }),
       session({ sessionId: "claude-gone", cwd: "~/deleted" }),
       session({ agent: "codex_cli", sessionId: "codex-here", cwd: checkout }),
       session({ agent: "cursor", sessionId: "cursor-1", cwd: "~/acme.portal" }),
@@ -370,6 +586,7 @@ describe("localSessionsScript", () => {
           "claude-running",
           { state: "running", cwd: checkout, pid: process.pid },
         ],
+        ["claude-unused", { state: "empty", cwd: checkout, pid: null }],
         ["codex-here", { state: "here", cwd: checkout, pid: null }],
       ]),
     );
@@ -404,7 +621,7 @@ describe("resumeChoice", () => {
     string,
     {
       machine: string | null;
-      state: "here" | "running";
+      state: "here" | "running" | "empty";
       cwd: string;
       pid: number | null;
     }
@@ -429,6 +646,15 @@ describe("resumeChoice", () => {
         state: "running",
         cwd: "/home/dana/acme-portal",
         pid: 4242,
+      },
+    ],
+    [
+      "unused",
+      {
+        machine: null,
+        state: "empty",
+        cwd: "/home/dana/acme-portal",
+        pid: null,
       },
     ],
   ]);
@@ -465,6 +691,50 @@ describe("resumeChoice", () => {
         task("ACME-1", {
           sessions: [session({ sessionId: "running" }), ...sessions],
         }),
+        found,
+        new Set(),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("resumeChoice with a session that never got a message", () => {
+  it("resumes another of the task's sessions instead, or nothing", () => {
+    const found = new Map([
+      [
+        "unused",
+        {
+          machine: null,
+          state: "empty" as const,
+          cwd: "/home/dana/acme-portal",
+          pid: null,
+        },
+      ],
+      [
+        "older",
+        {
+          machine: null,
+          state: "here" as const,
+          cwd: "/home/dana/acme-portal",
+          pid: null,
+        },
+      ],
+    ]);
+    expect(
+      resumeChoice(
+        task("ACME-1", {
+          sessions: [
+            session({ sessionId: "unused", current: true }),
+            session({ sessionId: "older", current: false }),
+          ],
+        }),
+        found,
+        new Set(),
+      ),
+    ).toMatchObject({ session: { sessionId: "older" } });
+    expect(
+      resumeChoice(
+        task("ACME-1", { sessions: [session({ sessionId: "unused" })] }),
         found,
         new Set(),
       ),
@@ -584,30 +854,182 @@ describe("goal filters", () => {
   });
 });
 
-describe("starting work", () => {
+describe("row actions", () => {
   const known = [
-    { key: "opencode", name: "OpenCode", run: ["opencode"], installed: true },
+    { key: "pi", name: "Pi", run: ["pi"], installed: true },
+    {
+      key: "opencode",
+      name: "OpenCode",
+      run: ["opencode"],
+      installed: true,
+      icon: "icons/opencode.svg",
+      tint: true,
+    },
     { key: "codex", name: "Codex", run: ["codex"], installed: true },
     { key: "claude", name: "Claude Code", run: ["claude"], installed: false },
-    { key: "pi", name: "Pi", run: ["pi"], installed: true },
   ];
 
-  it("starts with the first of Claude Code, Codex and OpenCode installed on the machine", () => {
-    expect(startAgent(known)).toEqual({
-      key: "codex",
-      name: "Codex",
-      run: ["codex"],
-    });
-    expect(startAgent(known.slice(3))).toBeNull();
+  it("offers every installed agent, those Clocktopus tracks first, each most picked first as Herdr lists them", () => {
+    expect(installedAgents(known)).toEqual([
+      {
+        key: "opencode",
+        name: "OpenCode",
+        run: ["opencode"],
+        icon: "icons/opencode.svg",
+        tint: true,
+        tracked: true,
+      },
+      {
+        key: "codex",
+        name: "Codex",
+        run: ["codex"],
+        icon: null,
+        tint: false,
+        tracked: true,
+      },
+      {
+        key: "pi",
+        name: "Pi",
+        run: ["pi"],
+        icon: null,
+        tint: false,
+        tracked: false,
+      },
+    ]);
+    expect(installedAgents(known.filter((a) => !a.installed))).toEqual([]);
   });
 
-  it("asks Claude Code through the plugin's command and others through the copied skill", () => {
-    expect(startPrompt("claude", "ACME-12")).toBe(
-      "/clocktopus:start-work ACME-12",
+  it("tracks the agents `clocktopus agent setup` sets up", () => {
+    expect([...TRACKED_AGENTS].sort()).toEqual(
+      AGENTS.map((agent) => agent.id).sort(),
     );
-    expect(startPrompt("codex", "G-3")).toBe(
-      "Use the clocktopus-start-work skill to start work on G-3.",
+  });
+
+  it("sizes the menu to its rows, with a second header only when both kinds of agent are there, and caps it", () => {
+    const tracked = { tracked: true };
+    const other = { tracked: false };
+    expect(actionsPopupHeight([], false)).toBe(41);
+    expect(actionsPopupHeight([tracked, tracked], true)).toBe(
+      41 + 11 + 28 + 2 * 31 + 11 + 31,
     );
+    expect(actionsPopupHeight([tracked, other], false)).toBe(
+      41 + 11 + 28 + 2 * 31 + 11 + 28,
+    );
+    expect(actionsPopupHeight(Array(12).fill(tracked), true)).toBe(491);
+  });
+
+  it("lists every worktree whose branch names the task, and names a new one after the first free suffix", () => {
+    const stdout = [
+      "worktree /home/dana/acme-portal",
+      "HEAD 1111111",
+      "branch refs/heads/develop",
+      "",
+      "worktree /home/dana/.herdr/worktrees/acme-portal/acme-12-export",
+      "HEAD 2222222",
+      "branch refs/heads/acme-12-export",
+      "",
+      "worktree /home/dana/.claude/worktrees/dana+acme-12-csv",
+      "HEAD 3333333",
+      "branch refs/heads/dana/ACME-12-csv",
+      "",
+      "worktree /home/dana/.herdr/worktrees/acme-portal/acme-123-other",
+      "HEAD 4444444",
+      "branch refs/heads/acme-123-other",
+      "",
+      "---",
+      "develop",
+      "acme-12-export",
+      "acme-12-export-2",
+      "dana/ACME-12-csv",
+      "acme-123-other",
+      "",
+    ].join("\n");
+    expect(worktreeChoice(stdout, "ACME-12", "acme-12-export")).toEqual({
+      existing: [
+        {
+          path: "/home/dana/.herdr/worktrees/acme-portal/acme-12-export",
+          branch: "acme-12-export",
+        },
+        {
+          path: "/home/dana/.claude/worktrees/dana+acme-12-csv",
+          branch: "dana/ACME-12-csv",
+        },
+      ],
+      branch: "acme-12-export-3",
+      paths: [
+        "/home/dana/acme-portal",
+        "/home/dana/.herdr/worktrees/acme-portal/acme-12-export",
+        "/home/dana/.claude/worktrees/dana+acme-12-csv",
+        "/home/dana/.herdr/worktrees/acme-portal/acme-123-other",
+      ],
+    });
+    expect(
+      worktreeChoice(stdout, "ACME-12", "acme-12-new-title"),
+    ).toMatchObject({ branch: "acme-12-new-title" });
+    expect(worktreeChoice(null, "ACME-12", "acme-12-export")).toEqual({
+      existing: [],
+      branch: "acme-12-export",
+      paths: [],
+    });
+  });
+
+  it("leaves out prunable and bare worktrees, and ties a branch to the task as branchKeyOf does", () => {
+    const stdout = [
+      "worktree /srv/acme-portal.git",
+      "bare",
+      "",
+      "worktree /home/dana/.herdr/worktrees/acme-portal/acme-12-gone",
+      "HEAD 1111111",
+      "branch refs/heads/acme-12-gone",
+      "prunable gitdir file points to non-existent location",
+      "",
+      "worktree /home/dana/.herdr/worktrees/acme-portal/acme-12_csv",
+      "HEAD 2222222",
+      "branch refs/heads/acme-12_csv",
+      "",
+      "---",
+      "acme-12-gone",
+      "acme-12_csv",
+      "",
+    ].join("\n");
+    expect(worktreeChoice(stdout, "ACME-12", "acme-12-gone")).toEqual({
+      existing: [
+        {
+          path: "/home/dana/.herdr/worktrees/acme-portal/acme-12_csv",
+          branch: "acme-12_csv",
+        },
+      ],
+      branch: "acme-12-gone",
+      paths: ["/home/dana/.herdr/worktrees/acme-portal/acme-12_csv"],
+    });
+  });
+
+  it("finds a worktree's space from a folder inside it, but not from a worktree nested in it", () => {
+    const root = "/home/dana/acme-portal";
+    const nested = `${root}/.claude/worktrees/acme-12`;
+    const spaces = [
+      { id: "s-nested", machine: null, folder: nested, tabs: [{ id: "a" }] },
+      { id: "s-src", machine: null, folder: root, tabs: [{ id: "b" }] },
+      { id: "s-box", machine: "box", folder: root, tabs: [{ id: "c" }] },
+    ];
+    const panes = [{ tab: "b", cwd: `${root}/src` }];
+    expect(worktreeSpace(spaces, panes, null, root, [root, nested])?.id).toBe(
+      "s-src",
+    );
+    expect(worktreeSpace(spaces, panes, null, nested, [root, nested])?.id).toBe(
+      "s-nested",
+    );
+    expect(worktreeSpace(spaces, panes, "box", nested)).toBeNull();
+  });
+
+  it("names a task's worktree branch by its lowercase key and the first six words of its title", () => {
+    expect(
+      worktreeBranch({
+        key: "ACME-12",
+        title: "Export invoices as CSV, with the client's VAT number & totals",
+      }),
+    ).toBe("acme-12-export-invoices-as-csv-with-the");
+    expect(worktreeBranch({ key: "ACME-3", title: null })).toBe("acme-3");
   });
 });
 
@@ -628,6 +1050,46 @@ describe("realtime hints", () => {
     expect(pollEvery(JSON.stringify({ state: "offline" }))).toBe(30_000);
     expect(pollEvery(null)).toBe(30_000);
     expect(pollEvery("not json")).toBe(30_000);
+  });
+});
+
+describe("pull requests on a row", () => {
+  const pullRequest = (number: number, status: string) => ({
+    number,
+    status,
+  });
+
+  it("names the newest that isn't closed, and how many others aren't", () => {
+    expect(
+      pullRequestNote([
+        pullRequest(14, "closed"),
+        pullRequest(13, "draft"),
+        pullRequest(12, "open"),
+        pullRequest(11, "merged"),
+      ]),
+    ).toBe("#13 draft +2");
+    expect(pullRequestNote([pullRequest(12, "merged")])).toBe("#12 merged");
+  });
+
+  it("says nothing for a task whose pull requests are all closed, or a board without them", () => {
+    expect(pullRequestNote([pullRequest(12, "closed")])).toBeNull();
+    expect(pullRequestNote([])).toBeNull();
+    expect(pullRequestNote(undefined)).toBeNull();
+  });
+
+  it("opens only a pull request whose link is a web page", () => {
+    expect(
+      isWebUrl("https://bitbucket.org/acme-co/acmeportal/pull-requests/3"),
+    ).toBe(true);
+    expect(isWebUrl("")).toBe(false);
+    expect(isWebUrl("file:///etc/passwd")).toBe(false);
+    expect(isWebUrl(undefined)).toBe(false);
+  });
+
+  it("names the providers by their own names", () => {
+    expect(providerName("github")).toBe("GitHub");
+    expect(providerName("bitbucket")).toBe("Bitbucket");
+    expect(providerName("gitlab")).toBe("gitlab");
   });
 });
 

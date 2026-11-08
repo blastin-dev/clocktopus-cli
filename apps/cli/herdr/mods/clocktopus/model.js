@@ -5,6 +5,7 @@ export const STAGES = [
   ["created", "To do"],
   ["in_progress", "In progress"],
   ["in_review", "In review"],
+  ["merged", "Ready to ship"],
 ];
 
 // Agent-session providers Clocktopus records, as people name them.
@@ -143,7 +144,7 @@ export const labelledTasks = (terminals) => labelled(terminals, TASK_LABEL);
 // A Herdr agent with where its pane is: `agents()` joined to `panes()`, and the agent's own
 // session id when the panel found one (`sessionIds`, by terminal address).
 /**
- * @param {{ address: string, pane: string, space: string, space_name?: string, tab_name?: string, status: string, app: string | null, program?: { name: string }, focused: boolean }[]} agents
+ * @param {{ address: string, pane: string, space: string, tab?: string, space_name?: string, tab_name?: string, status: string, app: string | null, program?: { name: string }, focused: boolean }[]} agents
  * @param {{ pane: string, cwd: string | null, branch: string | null }[]} panes
  * @param {Record<string, string>} sessionIds
  * @param {Record<string, string>} [taskLabels] the task each terminal's label names
@@ -156,6 +157,7 @@ export function liveAgents(agents, panes, sessionIds, taskLabels = {}) {
       address: agent.address,
       pane: agent.pane,
       space: agent.space,
+      tab: agent.tab ?? null,
       where: [agent.space_name, agent.tab_name].filter(Boolean).join(" › "),
       spaceName: agent.space_name ?? null,
       tabName: agent.tab_name ?? null,
@@ -208,6 +210,85 @@ export function agentsByTask(tasks, live) {
   return byTask;
 }
 
+// The live agents the window shows: those in its shown tab, and the one an agent block shows
+// while that tab has no terminal of its own (a tab with a plain terminal is what is in view).
+/**
+ * @param {ReturnType<typeof liveAgents>} live
+ * @param {{ tab: string, agent?: string | null } | null} view what `focused()` reports
+ * @param {{ tab: string, terminal: string | null }[]} [panes]
+ */
+export function inView(live, view, panes = []) {
+  if (!view) return new Set();
+  const ownTerminal = panes.some((p) => p.tab === view.tab && p.terminal);
+  return new Set(
+    live
+      .filter(
+        (a) => a.tab === view.tab || (!ownTerminal && a.address === view.agent),
+      )
+      .map((a) => a.address),
+  );
+}
+
+// Terminals with no agent in them whose branch names one of `tasks`, such as a worktree opened
+// for the task with a plain terminal, by task key.
+/**
+ * @param {{ key: string }[]} tasks
+ * @param {{ pane: string, terminal: string | null, tab: string, cwd: string | null, branch: string | null }[]} panes
+ * @param {{ pane: string }[]} live
+ */
+export function terminalsByTask(tasks, panes, live) {
+  const agentPanes = new Set(live.map((a) => a.pane));
+  const keys = new Set(tasks.map((t) => t.key));
+  /** @type {Map<string, { pane: string, terminal: string, tab: string, cwd: string | null, branch: string }[]>} */
+  const byTask = new Map();
+  for (const p of panes) {
+    if (!p.terminal || agentPanes.has(p.pane)) continue;
+    const key = branchKeyOf(p.branch);
+    if (!key || !keys.has(key)) continue;
+    byTask.set(key, [
+      ...(byTask.get(key) ?? []),
+      {
+        pane: p.pane,
+        terminal: p.terminal,
+        tab: p.tab,
+        cwd: p.cwd,
+        branch: p.branch ?? "",
+      },
+    ]);
+  }
+  return byTask;
+}
+
+// The tasks a live agent's session worked on before it moved on: the board lists the session on
+// them, but the agent counts toward another task now. Each task gets those agents with `now`, the
+// task `agentsByTask` puts the agent on (null when it is on none the board lists).
+/**
+ * @param {{ key: string, sessions: { sessionId: string }[] }[]} tasks
+ * @param {ReturnType<typeof agentsByTask>} byTask
+ * @param {ReturnType<typeof liveAgents>} live
+ */
+export function movedOn(tasks, byTask, live) {
+  /** @type {Map<string, string>} */
+  const now = new Map();
+  for (const [key, agents] of byTask)
+    for (const agent of agents) now.set(agent.address, key);
+  /** @type {Map<string, { agent: ReturnType<typeof liveAgents>[number], now: string | null }[]>} */
+  const moved = new Map();
+  for (const agent of live) {
+    if (!agent.sessionId) continue;
+    const current = now.get(agent.address) ?? null;
+    for (const task of tasks) {
+      if (task.key === current) continue;
+      if (!task.sessions.some((s) => s.sessionId === agent.sessionId)) continue;
+      moved.set(task.key, [
+        ...(moved.get(task.key) ?? []),
+        { agent, now: current },
+      ]);
+    }
+  }
+  return moved;
+}
+
 // The agent a click on the task brings up: the one whose session is the task's, else the only
 // one on its branch. Null when that leaves a choice, so the row lists them instead.
 /** @param {ReturnType<typeof agentsByTask> extends Map<string, infer V> ? V : never} agents */
@@ -216,6 +297,87 @@ export function clickTarget(agents) {
   if (bySession.length === 1) return bySession[0];
   if (bySession.length === 0 && agents.length === 1) return agents[0];
   return null;
+}
+
+// The agent a click on the row focuses: `clickTarget`'s, unless it is already in view, where
+// focusing it changes nothing on screen and the click opens the row instead.
+/**
+ * @template {{ address: string }} A
+ * @param {A | null | undefined} target
+ * @param {Set<string>} shown `inView`
+ */
+export const focusTarget = (target, shown) =>
+  target && !shown.has(target.address) ? target : null;
+
+// The first session the board has working on the task that isn't a Herdr agent the panel shows
+// elsewhere: while `away`'s session is still the task's current one, a session of yours working
+// on it can be that agent, so yours are skipped then.
+/**
+ * @template {{ mine: boolean }} W
+ * @param {{ working: W[], sessions: { sessionId: string, current: boolean }[] }} task
+ * @param {{ agent: { sessionId: string | null } } | null} away the first of `movedOn` for the task
+ * @returns {W | null}
+ */
+export function workingElsewhere(task, away) {
+  const lagging =
+    Boolean(away?.agent.sessionId) &&
+    task.sessions.some(
+      (s) => s.sessionId === away?.agent.sessionId && s.current,
+    );
+  return task.working.find((w) => !(w.mine && lagging)) ?? null;
+}
+
+// A tab name the panel gives: a task key or goal ref, or a goal ref then the task its run is on.
+const PANEL_TAB_NAME =
+  /^(?:([A-Za-z][A-Za-z0-9]*-\d+) · )?([A-Za-z][A-Za-z0-9]*-\d+)$/;
+
+// The name a tab takes when its agent is on task `key`, keeping a goal ref the tab was opened
+// for in front. Null leaves the tab as it is: a name the panel doesn't give (a number, one a
+// person chose), or the name it already has.
+/**
+ * @param {string | null} name
+ * @param {string} key
+ * @param {string[]} goalRefs the board's goals
+ */
+export function followedTabName(name, key, goalRefs) {
+  const match = PANEL_TAB_NAME.exec(name ?? "");
+  if (!match) return null;
+  const goal = match[1] ?? (goalRefs.includes(match[2]) ? match[2] : null);
+  const next = goal && goal !== key ? `${goal} · ${key}` : key;
+  return next === name ? null : next;
+}
+
+// The tabs to rename, as [tab id, name]: each tab whose agents are on one task by their label or
+// their session (`agentsByTask`), and whose name `followedTabName` changes. A tab whose agents are
+// on several tasks, or only matched by branch, keeps its name.
+/**
+ * @param {ReturnType<typeof liveAgents>} live
+ * @param {ReturnType<typeof agentsByTask>} byTask
+ * @param {string[]} goalRefs
+ */
+export function tabRenames(live, byTask, goalRefs) {
+  /** @type {Map<string, string>} */
+  const taskOf = new Map();
+  for (const [key, agents] of byTask)
+    for (const agent of agents)
+      if (agent.via !== "branch") taskOf.set(agent.address, key);
+  /** @type {Map<string, { name: string | null, keys: Set<string> }>} */
+  const tabs = new Map();
+  for (const agent of live) {
+    if (!agent.tab) continue;
+    const tab = tabs.get(agent.tab) ?? { name: agent.tabName, keys: new Set() };
+    const key = taskOf.get(agent.address);
+    if (key) tab.keys.add(key);
+    tabs.set(agent.tab, tab);
+  }
+  /** @type {[string, string][]} */
+  const renames = [];
+  for (const [id, { name, keys }] of tabs) {
+    if (keys.size !== 1) continue;
+    const next = followedTabName(name, [...keys][0], goalRefs);
+    if (next) renames.push([id, next]);
+  }
+  return renames;
 }
 
 // The board as the panel shows it: a To do task an agent has taken up (by its label or its
@@ -246,27 +408,135 @@ export const mostUrgent = (agents) =>
     (a, b) => (URGENCY[a.status] ?? 4) - (URGENCY[b.status] ?? 4),
   )[0] ?? null;
 
-// The agents the panel starts work with, in order of preference, by their key in Herdr's
-// program table (`knownAgents()`): the first one installed on the space's machine.
-const START_AGENTS = ["claude", "codex", "opencode"];
+// The agents `clocktopus agent setup` tracks, by their key in Herdr's program table: `AgentId` in
+// `apps/cli/src/lib/agents.ts`.
+export const TRACKED_AGENTS = ["claude", "codex", "opencode", "cursor"];
 
-/** @param {{ key: string, name: string, run: string[], installed: boolean }[]} known */
-export function startAgent(known) {
-  for (const key of START_AGENTS) {
-    const agent = known.find((a) => a.key === key && a.installed);
-    if (agent) return { key: agent.key, name: agent.name, run: agent.run };
-  }
-  return null;
+// The agents installed on the space's machine, those Clocktopus tracks first, each group in
+// `knownAgents()`'s order (most picked first).
+/** @param {{ key: string, name: string, run: string[], installed: boolean, icon?: string | null, tint?: boolean }[]} known */
+export const installedAgents = (known) => {
+  const installed = known
+    .filter((a) => a.installed)
+    .map((a) => ({
+      key: a.key,
+      name: a.name,
+      run: a.run,
+      icon: a.icon ?? null,
+      tint: Boolean(a.tint),
+      tracked: TRACKED_AGENTS.includes(a.key),
+    }));
+  return [
+    ...installed.filter((a) => a.tracked),
+    ...installed.filter((a) => !a.tracked),
+  ];
+};
+
+export const ACTIONS_WIDTH = 260;
+export const ACTIONS_ROW = 31;
+export const ACTIONS_HEADER = 28;
+export const ACTIONS_DIVIDER = 11;
+// Herdr's new-tab menu caps its own height here, its agent rows scrolling past it.
+export const ACTIONS_MAX_HEIGHT = 491;
+
+// The More actions menu's height: 5px padding, New worktree, a divider and header over the agent
+// rows, a second divider and header when tracked and untracked agents are both there, and a
+// divider and Open in Clocktopus when the task has a page.
+/** @param {{ tracked: boolean }[]} choices @param {boolean} hasPage */
+export function actionsPopupHeight(choices, hasPage) {
+  const split =
+    choices.some((a) => a.tracked) && choices.some((a) => !a.tracked);
+  return Math.min(
+    ACTIONS_MAX_HEIGHT,
+    10 +
+      ACTIONS_ROW +
+      (choices.length
+        ? ACTIONS_DIVIDER + ACTIONS_HEADER + choices.length * ACTIONS_ROW
+        : 0) +
+      (split ? ACTIONS_DIVIDER + ACTIONS_HEADER : 0) +
+      (hasPage ? ACTIONS_DIVIDER + ACTIONS_ROW : 0),
+  );
 }
 
-// The first message that has the agent start work on `target`, a task key or a goal ref,
-// through the start-work skill: the Clocktopus plugin's command in Claude Code, the skill
-// `clocktopus agent setup` copies into `~/.agents/skills` for the others.
-/** @param {string} agentKey @param {string} target */
-export const startPrompt = (agentKey, target) =>
-  agentKey === "claude"
-    ? `/clocktopus:start-work ${target}`
-    : `Use the clocktopus-start-work skill to start work on ${target}.`;
+// `WORKTREES_SCRIPT` prints `git worktree list --porcelain`, a `---` line, then the
+// repository's branches.
+export const WORKTREES_SCRIPT =
+  "git worktree list --porcelain && echo --- && git for-each-ref --format='%(refname:short)' refs/heads/";
+
+// For task `key`'s `branch`, from `WORKTREES_SCRIPT`'s output: the worktrees whose branch names the
+// task (`branchKeyOf`), leaving out prunable and bare ones as Herdr's worktree dialog does, and
+// the name a new worktree takes: `branch` unless a worktree has it, then the first free
+// `<branch>-2`, `-3`, …, and every worktree's path (`paths`, for `worktreeSpace`).
+/** @param {string | null | undefined} stdout @param {string} key @param {string} branch */
+export function worktreeChoice(stdout, key, branch) {
+  const [list = "", refs = ""] = (stdout ?? "").split("\n---\n");
+  /** @type {{ path: string, branch: string }[]} */
+  const worktrees = [];
+  for (const block of list.split(/\n\n+/)) {
+    const lines = block.split("\n");
+    const path = lines.find((l) => l.startsWith("worktree "))?.slice(9);
+    const ref = lines.find((l) => l.startsWith("branch "))?.slice(7);
+    if (!path || !ref) continue;
+    if (lines.some((l) => l === "bare" || l.startsWith("prunable"))) continue;
+    worktrees.push({ path, branch: ref.replace(/^refs\/heads\//, "") });
+  }
+  const k = key.toUpperCase();
+  const existing = worktrees.filter((w) => branchKeyOf(w.branch) === k);
+  const paths = worktrees.map((w) => w.path);
+  if (!worktrees.some((w) => w.branch === branch))
+    return { existing, branch, paths };
+  const taken = new Set([
+    ...refs.split("\n").map((r) => r.trim()),
+    ...worktrees.map((w) => w.branch),
+  ]);
+  let n = 2;
+  while (taken.has(`${branch}-${n}`)) n++;
+  return { existing, branch: `${branch}-${n}`, paths };
+}
+
+// The `taken` dialog's height: its title, text, a 34px row per worktree (at most five before
+// they scroll), the name field and the buttons.
+/** @param {number} worktreeCount */
+export const takenDialogHeight = (worktreeCount) =>
+  200 + Math.min(worktreeCount, 5) * 34;
+
+// The space on `machine` at worktree `path`: its folder (`spaceFolder`) is the worktree or inside
+// it, and not inside another of `paths` nested deeper, as Herdr's worktree dialog finds one.
+/**
+ * @param {{ id: string, machine?: string | null, folder: string, tabs: { id: string }[] }[]} spaces
+ * @param {{ tab: string, cwd: string | null }[]} panes
+ * @param {string | null} machine
+ * @param {string} path
+ * @param {string[]} [paths]
+ */
+export function worktreeSpace(spaces, panes, machine, path, paths = []) {
+  const inside = (p, dir) => p === dir || p.startsWith(`${dir}/`);
+  return (
+    spaces.find((space) => {
+      if ((space.machine ?? null) !== machine) return false;
+      const at = spaceFolder(space, panes);
+      if (!at || !inside(at, path)) return false;
+      return !paths.some(
+        (other) =>
+          other !== path && other.length > path.length && inside(at, other),
+      );
+    }) ?? null
+  );
+}
+
+// The branch a task's new worktree checks out: its key and the first words of its title,
+// lowercase, so Clocktopus attributes the branch's commits to the task.
+/** @param {{ key: string, title?: string | null }} task */
+export function worktreeBranch(task) {
+  const words = (task.title ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 6);
+  return [task.key.toLowerCase(), ...words].join("-");
+}
 
 // The command that reopens an agent session in its folder; null for agents that can't.
 export function resumeArgv(session) {
@@ -298,9 +568,9 @@ export const terminalOf = (foregrounds, pid) =>
   (pid && foregrounds.find((t) => t.pid === pid)?.address) || null;
 
 // A shell script and its arguments that, run on a machine, print one line per session of
-// `sessions` found there: `here <id> <folder>` when its transcript is there and its folder
-// exists, `running <id> <pid> <folder>` when its agent's process still runs (paths: RECIPE.md,
-// Resume). Folders arrive home-relative (`~/…`, as the hook reports them) and leave absolute.
+// `sessions` whose folder exists there: `here <id> <folder>` with its transcript, `running <id>
+// <pid> <folder>` while its agent's process runs, `empty <id> <folder>` for a Claude Code session
+// with neither (paths: RECIPE.md, Resume). Folders arrive home-relative (`~/…`, as the hook reports them) and leave absolute.
 export function localSessionsScript(sessions) {
   const args = [];
   for (const s of sessions) {
@@ -325,7 +595,8 @@ export function localSessionsScript(sessions) {
     '        kill -0 "$pid" 2>/dev/null && running=$pid',
     "      done",
     '      if [ -n "$running" ]; then echo "running $id $running $cwd"',
-    '      elif [ -f "$claude/projects/$(printf %s "$cwd" | sed "s/[^A-Za-z0-9]/-/g")/$id.jsonl" ]; then echo "here $id $cwd"; fi ;;',
+    '      elif [ -f "$claude/projects/$(printf %s "$cwd" | sed "s/[^A-Za-z0-9]/-/g")/$id.jsonl" ]; then echo "here $id $cwd"',
+    '      else echo "empty $id $cwd"; fi ;;',
     '    codex_cli) case $codex in *"$id.jsonl"*) echo "here $id $cwd" ;; esac ;;',
     "  esac",
     "done",
@@ -336,11 +607,16 @@ export function localSessionsScript(sessions) {
 // `localSessionsScript`'s output, by session id.
 /** @param {string} stdout */
 export function parseLocalSessions(stdout) {
-  /** @type {Map<string, { state: "here" | "running", cwd: string, pid: number | null }>} */
+  /** @type {Map<string, { state: "here" | "running" | "empty", cwd: string, pid: number | null }>} */
   const found = new Map();
   for (const line of (stdout ?? "").split("\n")) {
-    const here = line.match(/^here (\S+) (.+)$/);
-    if (here) found.set(here[1], { state: "here", cwd: here[2], pid: null });
+    const here = line.match(/^(here|empty) (\S+) (.+)$/);
+    if (here)
+      found.set(here[2], {
+        state: here[1] === "here" ? "here" : "empty",
+        cwd: here[3],
+        pid: null,
+      });
     const running = line.match(/^running (\S+) (\d+) (.+)$/);
     if (running)
       found.set(running[1], {
@@ -354,16 +630,21 @@ export function parseLocalSessions(stdout) {
 
 // Where the task's sessions are on the machines Herdr reaches (`found`: session id to each
 // machine's `parseLocalSessions` entry, `machine` null for this computer), and which one a
-// click resumes: the newest session working on the task now that is on a machine and not
-// running, else the newest such session. Null when none is, or one of them still runs.
+// click resumes: the newest session working on the task now that is on a machine with its
+// transcript and not running, else the newest such session. Null when none is, or one of them
+// still runs.
 /**
  * @param {{ sessions: { agent: string, sessionId: string, current: boolean }[] }} task
- * @param {Map<string, { machine: string | null, state: "here" | "running", cwd: string, pid: number | null }>} found
+ * @param {Map<string, { machine: string | null, state: "here" | "running" | "empty", cwd: string, pid: number | null }>} found
  * @param {Set<string>} liveIds sessions open in a Herdr terminal now
  */
 export function resumeChoice(task, found, liveIds) {
   const candidates = task.sessions.filter(
-    (s) => resumeArgv(s) && !liveIds.has(s.sessionId) && found.has(s.sessionId),
+    (s) =>
+      resumeArgv(s) &&
+      !liveIds.has(s.sessionId) &&
+      found.has(s.sessionId) &&
+      found.get(s.sessionId)?.state !== "empty",
   );
   if (candidates.some((s) => found.get(s.sessionId)?.state === "running"))
     return null;
@@ -433,6 +714,26 @@ export function filterTasks(tasks, stage, query, keys = null) {
 export function goalKeys(goals, picked) {
   const chosen = goals.filter((goal) => picked.includes(goal.ref));
   return chosen.length ? new Set(chosen.flatMap((goal) => goal.keys)) : null;
+}
+
+// Whether a pull request's `url` is a web page to open: Bitbucket's webhook can carry none, which
+// is stored as "".
+/** @param {string | null | undefined} url */
+export const isWebUrl = (url) => /^https?:\/\//i.test(url ?? "");
+
+// Git providers as people name them.
+const PROVIDER_NAMES = { github: "GitHub", bitbucket: "Bitbucket" };
+export const providerName = (provider) => PROVIDER_NAMES[provider] ?? provider;
+
+// The collapsed row's word on a task's pull requests (newest first, as the board lists them):
+// the newest that isn't closed, and how many others aren't. Null when every one is closed.
+/** @param {{ number: number, status: string }[] | undefined} pullRequests */
+export function pullRequestNote(pullRequests) {
+  const live = (pullRequests ?? []).filter((pr) => pr.status !== "closed");
+  const [newest] = live;
+  if (!newest) return null;
+  const more = live.length > 1 ? ` +${live.length - 1}` : "";
+  return `#${newest.number} ${newest.status}${more}`;
 }
 
 // "3m", "5h", "2d": how long ago `iso` was, from `now` (ms).
