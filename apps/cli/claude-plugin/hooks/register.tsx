@@ -2,7 +2,7 @@ import type { EngineInterface, Register } from "claude-code";
 import { atom, read, update } from "claude-code";
 
 import type { Task, View } from "../types";
-import type { LocalVersions, Row } from "./panel";
+import type { LocalVersions, Place, Row } from "./panel";
 import {
   checkoutOf,
   cliRows,
@@ -12,13 +12,16 @@ import {
   environmentBanner,
   environmentOf,
   environmentTag,
+  followsMove,
   herdrLabelArgs,
   hidden,
+  isMovingCall,
   isRealtimeHint,
   isRecord,
   isRefreshingCall,
   messageOf,
   realtimeWatchPaths,
+  revParseOf,
   sessionRows,
   sshHostOf,
   stageOf,
@@ -136,6 +139,26 @@ const REV_PARSE = [
   "--git-common-dir",
 ];
 
+// `cwd` defaults to the session's own directory.
+async function placeOf(
+  $: EngineInterface,
+  cwd?: string,
+): Promise<Place | null> {
+  const options = { timeoutMs: 2000, ...(cwd ? { cwd } : {}) };
+  const [revParse, branch] = await Promise.all([
+    $.process.run(REV_PARSE, options),
+    $.process.run(["git", "symbolic-ref", "--short", "-q", "HEAD"], options),
+  ]);
+  const checkout = revParse.exitCode === 0 ? revParseOf(revParse.stdout) : null;
+  if (!checkout) return null;
+  return {
+    root: checkout.root,
+    isWorktree: checkout.isWorktree,
+    branch:
+      branch.exitCode === 0 ? branch.stdout.trim() || undefined : undefined,
+  };
+}
+
 async function currentCheckout($: EngineInterface) {
   const { exitCode, stdout } = await $.process.run(REV_PARSE, {
     timeoutMs: 2000,
@@ -190,6 +213,7 @@ async function readEnvironment($: EngineInterface) {
 
 async function load(
   $: EngineInterface,
+  followBranch: boolean,
 ): Promise<Omit<View, "error" | "updatedAt">> {
   const remote = (await $.session.repo())?.remote;
   if (!remote) return hidden("not in a git repository with a remote");
@@ -215,6 +239,7 @@ async function load(
     agentSessionId: sessionId,
     agent: AGENT,
     ...(branch ? { branch } : {}),
+    ...(followBranch ? { followBranch } : {}),
     ...(cliVersion ? { cliVersion } : {}),
   });
   const view = viewOf(
@@ -287,6 +312,9 @@ async function openUrl(
 
 let running: Promise<void> | undefined;
 let isStale = false;
+// Set by a refresh after this session's own move (`isMovingCall`, `CwdChanged`), and taken by
+// the next server call.
+let isFollowPending = false;
 let retries = 0;
 let unreportedRechecks = 0;
 
@@ -295,9 +323,11 @@ async function refreshOnce($: EngineInterface) {
   const environmentRead = readEnvironment($).then((next) =>
     update($, environment, () => next),
   );
+  const followBranch = isFollowPending;
+  isFollowPending = false;
   let next: View;
   try {
-    next = { ...(await load($)), error: null, updatedAt };
+    next = { ...(await load($, followBranch)), error: null, updatedAt };
     retries = 0;
     if (!next.task || next.attribution?.countsTowardTask !== false) {
       unreportedRechecks = 0;
@@ -306,6 +336,8 @@ async function refreshOnce($: EngineInterface) {
       $.clock.after(UNREPORTED_RECHECK_MS, () => refreshLater($));
     }
   } catch (error) {
+    // The next refresh, a retry's included, still follows the move this one couldn't report.
+    if (followBranch) isFollowPending = true;
     const last = await read($, view);
     next = { ...(last ?? hidden(null)), error: messageOf(error), updatedAt };
     // A repository Clocktopus has answered for and shows nothing in stays silent when a later
@@ -353,7 +385,8 @@ async function labelHerdrTerminal($: EngineInterface, next: View) {
 }
 
 // One refresh at a time; a request made meanwhile runs one more after it.
-function refresh($: EngineInterface): Promise<void> {
+function refresh($: EngineInterface, followBranch = false): Promise<void> {
+  if (followBranch) isFollowPending = true;
   if (running) {
     isStale = true;
     return running;
@@ -379,7 +412,8 @@ const startRealtimeWatcher = ($: EngineInterface) =>
     .catch(() => undefined);
 
 // A refresh nothing waits on; its failure is already in the view.
-const refreshLater = ($: EngineInterface) => void refresh($).catch(() => {});
+const refreshLater = ($: EngineInterface, followBranch = false) =>
+  void refresh($, followBranch).catch(() => {});
 
 export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
@@ -433,7 +467,11 @@ export const register: Register = (on) => {
   // A worktree or another checkout: its HEAD is not watched, so the move itself refreshes.
   on("classic.CwdChanged", async ($, e, next) => {
     const result = await next(e);
-    refreshLater($);
+    const [before, after] = await Promise.all([
+      placeOf($, e.old_cwd).catch(() => null),
+      placeOf($, e.new_cwd).catch(() => null),
+    ]);
+    refreshLater($, followsMove(before, after));
     return result;
   });
 
@@ -467,12 +505,18 @@ export const register: Register = (on) => {
   });
 
   on("tool.call", async ($, e, next) => {
+    const input: Record<string, unknown> = { ...e };
+    const command = text(input.command);
+    // A subagent's calls run in its own folder, so the session's own place can't show its move.
+    const isMove = !e.agentId && isMovingCall(e.tool, command);
+    const before = isMove ? await placeOf($).catch(() => null) : null;
     const result = await next(e);
     if (result.deny !== undefined) return result;
-    const input: Record<string, unknown> = { ...e };
     // The call already ran: the model doesn't wait on the refresh.
-    if (!result.isError && isRefreshingCall(e.tool, text(input.command)))
-      refreshLater($);
+    if (!result.isError && isRefreshingCall(e.tool, command)) {
+      const after = isMove ? await placeOf($).catch(() => null) : null;
+      refreshLater($, followsMove(before, after));
+    }
 
     // A failed call still worked where it names, as `cd <worktree> && pnpm test` with a failing
     // test does. A subagent's calls run in its own folder, which `$.process.run` doesn't start in.

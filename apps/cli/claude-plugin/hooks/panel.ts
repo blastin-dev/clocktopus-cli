@@ -64,10 +64,15 @@ export const hidden = (note: string | null) => ({
 });
 
 // Whether a finished tool call can have moved the session to another task: a Clocktopus MCP
-// call, or a branch or worktree change.
+// call, or a move of its own (`isMovingCall`).
 export function isRefreshingCall(tool: string, command: string | null) {
+  return CLOCKTOPUS_TOOL.test(tool) || isMovingCall(tool, command);
+}
+
+// Whether a finished tool call may have changed this session's branch or worktree;
+// `followsMove` decides from what it actually changed.
+export function isMovingCall(tool: string, command: string | null) {
   return (
-    CLOCKTOPUS_TOOL.test(tool) ||
     tool === "EnterWorktree" ||
     tool === "ExitWorktree" ||
     (tool === "Bash" && BRANCH_CHANGE.test(command ?? ""))
@@ -329,6 +334,23 @@ export function revParseOf(stdout: string) {
   if (!root || !gitDir || !commonDir) return null;
   // A linked worktree's git dir is `<common dir>/worktrees/<name>`; the main checkout's is the common dir.
   return { root, gitDir, commonDir, isWorktree: gitDir !== commonDir };
+}
+
+// Where a session stands before and after its own move: the checkout's root, whether it is a
+// linked worktree, and its branch.
+export type Place = {
+  root: string;
+  isWorktree: boolean;
+  branch: string | undefined;
+};
+
+// Whether the session's own move ties it to its new branch's task (`followBranch`): a branch
+// switch within its checkout, or a move into a linked worktree. A move into a main checkout
+// doesn't, since other sessions share it and its branch may be one of theirs.
+export function followsMove(before: Place | null, after: Place | null) {
+  if (!before || !after) return false;
+  if (before.root !== after.root) return after.isWorktree;
+  return before.branch !== after.branch;
 }
 
 export function checkoutOf(stdout: string, home: string | undefined) {

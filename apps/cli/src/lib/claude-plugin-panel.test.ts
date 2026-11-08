@@ -16,6 +16,8 @@ import {
   environmentBanner,
   environmentOf,
   environmentTag,
+  followsMove,
+  isMovingCall,
   isRefreshingCall,
   messageOf,
   sessionRows,
@@ -754,5 +756,51 @@ describe("environmentBanner", () => {
       sessionApiUrl: "https://staging.clocktopus.app",
     };
     expect(environmentTag(stale)).toBe("▲ restart Claude Code");
+  });
+});
+
+describe("isMovingCall", () => {
+  it("is true for the session's own branch or worktree change", () => {
+    expect(isMovingCall("Bash", "git switch -c acme-42-csv")).toBe(true);
+    expect(isMovingCall("EnterWorktree", null)).toBe(true);
+    expect(isMovingCall("ExitWorktree", null)).toBe(true);
+  });
+
+  it("is false for a Clocktopus tool call or a command that moves nothing", () => {
+    expect(
+      isMovingCall("mcp__plugin_clocktopus_clocktopus__link_session", null),
+    ).toBe(false);
+    expect(isMovingCall("Bash", "git status")).toBe(false);
+  });
+});
+
+describe("followsMove", () => {
+  const main = { root: "/w/acme", isWorktree: false, branch: "main" };
+  const worktree = {
+    root: "/w/acme-42",
+    isWorktree: true,
+    branch: "dana/acme-42-csv",
+  };
+
+  it("follows a branch switch within the session's checkout", () => {
+    expect(followsMove(main, { ...main, branch: "dana/acme-42-csv" })).toBe(
+      true,
+    );
+  });
+
+  it("follows a move into a linked worktree", () => {
+    expect(followsMove(main, worktree)).toBe(true);
+  });
+
+  it("doesn't follow a move back into a main checkout other sessions share", () => {
+    expect(
+      followsMove(worktree, { ...main, branch: "dana/acme-9-other" }),
+    ).toBe(false);
+  });
+
+  it("doesn't follow when nothing changed, or a place is unknown", () => {
+    expect(followsMove(main, main)).toBe(false);
+    expect(followsMove(null, worktree)).toBe(false);
+    expect(followsMove(main, null)).toBe(false);
   });
 });
