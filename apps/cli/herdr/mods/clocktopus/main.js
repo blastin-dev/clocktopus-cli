@@ -84,7 +84,13 @@ const TODO_LOADED = 200;
 // Where the CLI is usually installed, for a desktop app started without the login shell's PATH.
 const PATHS =
   'PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$HOME/.local/share/pnpm:$HOME/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH';
-const STAGE_ORDER = ["merged", "in_review", "in_progress", "created"];
+const STAGE_ORDER = ["done", "merged", "in_review", "in_progress", "created"];
+// The groups the board lists only up to the CLI's limit, each with its total and the line
+// saying where the rest are.
+const CAPPED = {
+  merged: { total: "mergedTotal", rest: "merged" },
+  done: { total: "deliveredTotal", rest: "delivered" },
+};
 const MARK = "mods/clocktopus/mark.png";
 // Where `clocktopus realtime watch` keeps its files on this computer.
 const realtimeDir = () => `${home()}/.clocktopus/realtime`;
@@ -693,8 +699,9 @@ export default class Clocktopus extends View {
     this.open = null;
     // The name each tab was last renamed to, so a rename is asked for once.
     this.renamed = new Map();
-    // Ready to ship starts collapsed: its tasks are there to go back to, not to work through.
-    this.collapsed = new Set(["merged"]);
+    // Delivered and Ready to ship start collapsed: their tasks are there to go back to, not
+    // to work through.
+    this.collapsed = new Set(["done", "merged"]);
     this.query = "";
     this.allTodo = false;
     this.filter = InputState.new({
@@ -1182,11 +1189,12 @@ export default class Clocktopus extends View {
       const total =
         stage === "created"
           ? todoTotal
-          : stage === "merged"
-            ? (board.mergedTotal ?? 0)
+          : CAPPED[stage]
+            ? (board[CAPPED[stage].total] ?? 0)
             : counts[stage];
-      // An older CLI or server lists no Ready to ship tasks, and an empty one is noise.
-      if (stage === "merged" && total === 0) continue;
+      // An older CLI or server lists no Ready to ship or Delivered tasks, and an empty group
+      // is noise.
+      if (CAPPED[stage] && total === 0) continue;
       // Tasks an agent is working on now; an idle or finished agent isn't cooking.
       const cookingCount = matching.filter((task) =>
         (byTask.get(task.key) ?? []).some(
@@ -1312,7 +1320,7 @@ export default class Clocktopus extends View {
             ),
         );
       }
-      if (stage === "merged" && !collapsed && total > counts.merged) {
+      if (CAPPED[stage] && !collapsed && total > counts[stage]) {
         sections.push(
           div()
             .px(14)
@@ -1320,7 +1328,7 @@ export default class Clocktopus extends View {
             .child(
               note(
                 t,
-                `The ${total - counts.merged} merged longer ago are on the Work page.`,
+                `The ${total - counts[stage]} ${CAPPED[stage].rest} longer ago are on the Work page.`,
               ),
             ),
         );
@@ -1534,7 +1542,11 @@ export default class Clocktopus extends View {
       if (task.goal) bits.push(task.goal.ref);
       if (!bits.length && task.stageSince)
         bits.push(
-          `${ago(task.stageSince, now)} in ${STAGES.find(([s]) => s === task.stage)[1].toLowerCase()}`,
+          task.stage === "done"
+            ? ago(task.stageSince, now) === "now"
+              ? "delivered just now"
+              : `delivered ${ago(task.stageSince, now)} ago`
+            : `${ago(task.stageSince, now)} in ${STAGES.find(([s]) => s === task.stage)[1].toLowerCase()}`,
         );
       sub = bits.join(" · ");
     }

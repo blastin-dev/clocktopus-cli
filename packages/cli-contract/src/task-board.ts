@@ -4,13 +4,15 @@ import { TaskPullRequestSchema } from "./pull-request";
 import { TimestampSchema } from "./timestamp";
 
 // The stages a task board lists, in its column order: To do, In progress, In
-// review, Ready to ship. A board lists `merged` only when asked for it
-// (`mergedLimit`), so a CLI whose schema lacks it still parses the board.
+// review, Ready to ship, Delivered. A board lists `merged` and `done` only when
+// asked for them (`mergedLimit`, `deliveredLimit`), so a CLI whose schema lacks
+// them still parses the board.
 export const BoardStageSchema = z.enum([
   "created",
   "in_progress",
   "in_review",
   "merged",
+  "done",
 ]);
 export type BoardStage = z.infer<typeof BoardStageSchema>;
 
@@ -23,6 +25,11 @@ export const TODO_LIMIT_MAX = 500;
 // and the most it lists. A request without `mergedLimit` gets none.
 export const MERGED_LIMIT_DEFAULT = 20;
 export const MERGED_LIMIT_MAX = 100;
+
+// How many Delivered tasks the CLI asks `GET /api/agent/task-board` for, and
+// the most it lists. A request without `deliveredLimit` gets none.
+export const DELIVERED_LIMIT_DEFAULT = 20;
+export const DELIVERED_LIMIT_MAX = 100;
 
 const BoardSessionSchema = z.object({
   // The agent-session provider, such as `claude_code` or `codex_cli`.
@@ -73,7 +80,8 @@ export type BoardTask = z.infer<typeof BoardTaskSchema>;
 // `GET /api/agent/task-board`. To do lists the active goals' tasks in goal
 // order, then the newest others, up to the request's `todoLimit`; `todoTotal`
 // counts them all. Ready to ship lists up to `mergedLimit`, most recently
-// merged first; `mergedTotal` counts them all.
+// merged first, and Delivered up to `deliveredLimit`, most recently delivered
+// first; `mergedTotal` and `deliveredTotal` count them all.
 export const TaskBoardSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("ok"),
@@ -91,6 +99,9 @@ export const TaskBoardSchema = z.discriminatedUnion("status", [
     // Every merged task, listed or not; absent from a server older than the
     // `merged` stage.
     mergedTotal: z.number().default(0),
+    // Every delivered task, listed or not; absent from a server older than the
+    // `done` stage.
+    deliveredTotal: z.number().default(0),
     // The project's active goals, newest first, each with the keys of its
     // tasks on the board, in goal order.
     goals: z.array(
