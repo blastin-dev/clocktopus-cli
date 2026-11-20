@@ -14,6 +14,11 @@ Or run directly with npx:
 npx @blastin-dev/clocktopus-cli <command>
 ```
 
+Each version is published from its `v<version>` tag on
+[`blastin-dev/clocktopus-cli`](https://github.com/blastin-dev/clocktopus-cli)
+with npm provenance, so `npm audit signatures` in a project that depends on it,
+or the version's page on npm, shows the commit it was built from.
+
 Every request sends the CLI's version in `X-Clocktopus-Cli-Version`. When the
 server no longer supports that version it answers `426`, and the CLI prints the
 server's message, which names the upgrade command, and exits with code `1`.

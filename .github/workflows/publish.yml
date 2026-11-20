@@ -1,0 +1,64 @@
+name: publish
+
+# Publishes `apps/cli` to npm when a `v<version>` tag arrives, which the sync
+# from blastin-dev/clocktopus pushes for each release. npm authenticates the run
+# itself (trusted publishing over OIDC), so this repository holds no npm token,
+# and the tarball carries provenance naming this tag's commit. A version npm
+# already has is skipped, so a run can be repeated. Run it by hand on a tag
+# (Run workflow → Use workflow from → Tags) when a release's run failed.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.x"
+          cache: "pnpm"
+
+      - name: Check the tag names this version
+        id: version
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          name=$(node -p "require('./apps/cli/package.json').name")
+          version=$(node -p "require('./apps/cli/package.json').version")
+          if [ "$REF" != "refs/tags/v$version" ]; then
+            echo "::error::$REF is not the tag of $name@$version; run this on tag v$version."
+            exit 1
+          fi
+          published=$(npm view "$name@$version" version 2>/dev/null || true)
+          if [ "$published" = "$version" ]; then
+            echo "$name@$version is already on npm, skipping the publish"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install
+        if: steps.version.outputs.publish == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        if: steps.version.outputs.publish == 'true'
+        run: pnpm build
+
+      - name: Publish to npm
+        if: steps.version.outputs.publish == 'true'
+        run: pnpm --filter @blastin-dev/clocktopus-cli publish --no-git-checks --access public --provenance

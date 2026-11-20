@@ -24,6 +24,11 @@ talks to, and this repository is a copy of the CLI's part of it:
 - `develop` is synced on every change, so it holds work not released yet. Its
   `package.json` keeps the last released version until the next release.
 
+Each version on npm is published from its tag here, by the `publish` workflow
+in `.github/workflows`, with npm provenance: `npm audit signatures` in a project
+that depends on the CLI, or the version's page on npm, shows the commit it was
+built from.
+
 Pull requests are welcome here, against `develop`: a maintainer applies an
 accepted one upstream, and it comes back in the next sync with you as its
 author. See
