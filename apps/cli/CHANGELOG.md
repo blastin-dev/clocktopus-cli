@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.15.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.14.0...cli-v0.15.0) (2026-11-20)
+
+
+### Features
+
+* **clk-125:** let agents move a task's stage through MCP update_task ([db679b6](https://github.com/blastin-dev/clocktopus/commit/db679b6bfcc50899b8e0e8c8038dee4ff174af7d))
+* **clk-125:** reopen delivered tasks when work resumes and move tasks between stages ([7d73e38](https://github.com/blastin-dev/clocktopus/commit/7d73e38d8127620efee43aa1d4361a6e774f4136))
+* **clk-128:** list recently delivered tasks on the task board and Herdr panel ([cab3975](https://github.com/blastin-dev/clocktopus/commit/cab3975984d2c9e0608d40fe31858d42597939e4))
+* **clk-128:** list recently delivered tasks on the task board and Herdr panel ([e8b1725](https://github.com/blastin-dev/clocktopus/commit/e8b1725ed2df42e3f3625d9ef38218a253132fcb))
+
+
+### Bug Fixes
+
+* **clk-128:** read "delivered just now" for a task under a minute old, and pin the board's missing totals ([07202be](https://github.com/blastin-dev/clocktopus/commit/07202be0d93dd9421c2ffaa19e2404c7886a6593))
+
 ## [0.14.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.13.0...cli-v0.14.0) (2026-11-08)
 
 

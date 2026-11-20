@@ -209,9 +209,8 @@ no new branch, no switch, and no `agentSessionId`. Tell the user its key.
 
 ## Don't
 
-- Don't set a task's stage. It moves on its own, from commits, pull requests
-  and delivery to the project's delivery branches.
+- Don't move a task's stage (`update_task` with `stage`) unless the user asks.
+  It moves on its own, from commits, pull requests and delivery to the
+  project's delivery branches.
 - Don't create a second task for work that already has one.
 - Don't block, delay or rewrite commits for want of a key.
-- Don't cancel a task (`update_task` with `cancelled: true`) unless the user
-  asks.

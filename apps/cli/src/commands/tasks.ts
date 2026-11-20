@@ -1,6 +1,7 @@
 import type { BoardStage, TaskBoard } from "@repo/cli-contract/task-board";
 import {
   BoardStageSchema,
+  DELIVERED_LIMIT_DEFAULT,
   MERGED_LIMIT_DEFAULT,
   TaskBoardSchema,
   TODO_LIMIT_DEFAULT,
@@ -34,6 +35,7 @@ export const STAGE_LABELS: Record<BoardStage, string> = {
   in_progress: "In progress",
   in_review: "In review",
   merged: "Ready to ship",
+  done: "Delivered",
 };
 
 export function taskBoardPath(input: {
@@ -45,6 +47,7 @@ export function taskBoardPath(input: {
     repositoryUrl: input.repositoryUrl,
     todoLimit: String(input.todoLimit),
     mergedLimit: String(MERGED_LIMIT_DEFAULT),
+    deliveredLimit: String(DELIVERED_LIMIT_DEFAULT),
   });
   if (input.org) query.set("orgId", input.org);
   return `/api/agent/task-board?${query.toString()}`;
@@ -119,13 +122,13 @@ export function formatTaskBoard(output: TasksOutput): string {
   ];
   for (const stage of BoardStageSchema.options) {
     const tasks = output.tasks.filter((task) => task.stage === stage);
-    const total =
-      stage === "created"
-        ? output.todoTotal
-        : stage === "merged"
-          ? output.mergedTotal
-          : tasks.length;
-    if (stage === "merged" && total === 0) continue;
+    const totals: Partial<Record<BoardStage, number>> = {
+      created: output.todoTotal,
+      merged: output.mergedTotal,
+      done: output.deliveredTotal,
+    };
+    const total = totals[stage] ?? tasks.length;
+    if ((stage === "merged" || stage === "done") && total === 0) continue;
     const count =
       total > tasks.length ? `${tasks.length} of ${total}` : `${tasks.length}`;
     lines.push("", `${STAGE_LABELS[stage]} · ${count}`);

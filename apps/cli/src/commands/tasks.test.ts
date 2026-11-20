@@ -24,7 +24,12 @@ function task(key: string, overrides: Partial<BoardTask> = {}): BoardTask {
   };
 }
 
-function board(tasks: BoardTask[], todoTotal = 0, mergedTotal = 0): OkBoard {
+function board(
+  tasks: BoardTask[],
+  todoTotal = 0,
+  mergedTotal = 0,
+  deliveredTotal = 0,
+): OkBoard {
   return {
     status: "ok",
     project: {
@@ -37,12 +42,13 @@ function board(tasks: BoardTask[], todoTotal = 0, mergedTotal = 0): OkBoard {
     tasks,
     todoTotal,
     mergedTotal,
+    deliveredTotal,
     goals: [],
   };
 }
 
 describe("taskBoardPath", () => {
-  it("sends the remote, the to do and ready to ship limits and the organisation when given", () => {
+  it("sends the remote, the to do, ready to ship and delivered limits and the organisation when given", () => {
     expect(
       taskBoardPath({
         repositoryUrl: "git@github.com:acme-co/acme-portal.git",
@@ -50,7 +56,7 @@ describe("taskBoardPath", () => {
         todoLimit: 10,
       }),
     ).toBe(
-      "/api/agent/task-board?repositoryUrl=git%40github.com%3Aacme-co%2Facme-portal.git&todoLimit=10&mergedLimit=20&orgId=org-1",
+      "/api/agent/task-board?repositoryUrl=git%40github.com%3Aacme-co%2Facme-portal.git&todoLimit=10&mergedLimit=20&deliveredLimit=20&orgId=org-1",
     );
   });
 });
@@ -115,6 +121,31 @@ describe("formatTaskBoard", () => {
         "  ACME-4     Task ACME-4",
       ].join("\n"),
     );
+  });
+
+  it("lists delivered after ready to ship, and leaves both out when empty", () => {
+    const text = formatTaskBoard(
+      board(
+        [
+          task("ACME-6", { stage: "merged" }),
+          task("ACME-7", { stage: "done" }),
+        ],
+        0,
+        1,
+        4,
+      ),
+    );
+
+    expect(text).toContain(
+      [
+        "Ready to ship · 1",
+        "  ACME-6     Task ACME-6",
+        "",
+        "Delivered · 1 of 4",
+        "  ACME-7     Task ACME-7",
+      ].join("\n"),
+    );
+    expect(formatTaskBoard(board([]))).not.toMatch(/Ready to ship|Delivered/);
   });
 
   it("marks a task with its pull requests that aren't closed", () => {
