@@ -6,9 +6,14 @@ Herdr's default window with a Clocktopus button in the tab bar and a Clocktopus 
 
 ## What you see
 
-Left to right, everything as in Herdr's `main` layout, plus two blocks:
+Left to right, everything as in Herdr's `main` layout, with a repository tree in place of its Spaces and Agents lists, plus two blocks:
 
-- **Sidebar**, 268px: Herdr's own brand bar, Spaces, Agents and footer.
+- **Sidebar**, 268px: Herdr's own brand bar and footer, and between them the `repos` block, one tree headed "Repositories" with a + for a new space:
+  - a machine row (a monitor or server icon, its name, a + for a new space there), only once a space lives on another machine;
+  - a repository row, 28px: an 18px avatar with its initial in white on one of Herdr's six avatar colours, chosen by its name, the name in semibold, a + that opens Herdr's `worktree` dialog (`action: "new"`, the repository's own checkout as `folder`), and a chevron that folds it (kept in the copy's `localStorage`). A folded repository shows its most urgent agent status after its name. Spaces outside a repository share an "Other" row with a folder icon and no +, last;
+  - a space row, 26px, indented 16px: a branch icon (a folder icon under Other), then the name a person gave the space, else the branch of its first terminal with one, else Herdr's name for it, in `foreground` when shown and `muted` otherwise, its folder as the tooltip. A click shows it; a right-click opens Herdr's space menu (`menu`, `tab: "space"`). The repository's own checkout comes first, then its worktrees in Herdr's space order;
+  - a tab row, 26px, indented 36px: its status (Herdr's `workspace-chrome/spinner.svg`, 11px, spinning in `working`, a dot in `blocked` or `done`, a hollow `idle` ring, a small `dim` dot with no agent), then its name as Herdr's tab bar names it. The shown tab of the shown space is on `selected`. A click shows it (`space.select`, then `tab.select`); a right-click opens Herdr's tab menu.
+  - Narrowed to the rail, it lists one 32px cell per space: the repository's avatar, with a status dot when an agent there needs you or is working.
 - **Work column**: the tab bar row is `tabs` (weight 1) beside a 128px `clocktopus-toggle` block, which draws the 16px Clocktopus mark (`mark.png`, rounded 4px) and "Clocktopus" in 12px, on `selected` while the panel shows. Under it the shown tab and Herdr's Files/Changes side panel, then the status bar.
 - **Clocktopus panel**, a 400px column (320–720px) right of the work area, on `background` with a 1px `border` and 10px corners, top to bottom:
   - a 42px header: the 18px mark, "Clocktopus" in the title size, then 24px icon buttons: open the project's Work page, refresh (a spinning `ring` in `working` while it reads), hide;
@@ -44,10 +49,12 @@ Left to right, everything as in Herdr's `main` layout, plus two blocks:
 - Every row, whatever its stage, has a More actions button (three dots) before its chevron. It opens a 260px-wide menu (`openOverlay {kind: "popup"}`, role `actions`) drawn like Herdr's new-tab menu, on `popover` with 5px padding and 31px rows. First "New worktree", with a branch icon and the branch in `dim`: `<key>-<the first six words of the title>`, lowercase. It opens Herdr's `worktree` dialog (`openOverlay {mod: "worktree", kind: "dialog", props: {space, folder, action: "new", branch}}`), which, given a branch, checks it out at once in `~/.herdr/worktrees/<repo>/` (a new branch from the space's HEAD) and opens it as a new space with a terminal. Before the menu opens, the panel runs `git worktree list --porcelain` and lists the branches in the space's folder on its machine (`WORKTREES_SCRIPT`). When any worktree's branch names the task (`branchKeyOf`, as for agents; prunable and bare worktrees left out, as Herdr's dialog does), New worktree and the agent rows open a 460px-wide dialog instead (role `taken`): "<key> already has a worktree" (or "n worktrees"), one 30px row per worktree with a folder icon, its branch and "open" ("open with <Agent>") in `dim`, its path the tooltip, five before the list scrolls, then a name field holding the task's branch, or its first free `-2`, `-3`, … when a worktree has it (`worktreeChoice`), and Create. A worktree's row shows the space already at it on its machine, its folder the worktree or inside it (`worktreeSpace`) (`space.select`), the agent as a new tab there (`tab.new`), or opens a new space there (`space.new`); Create, or Enter, hands the name to Herdr's worktree dialog as above. Then, when any agent is installed on the space's machine, a divider and an 11px `dim` header "New worktree with" over a row per installed agent, those `clocktopus agent setup` tracks (Claude Code, Codex, OpenCode, Cursor) first and then, after a divider and a "Not tracked by Clocktopus" header, the others, each group in `knownAgents({on})`'s order, most picked first, in a list that scrolls once the menu reaches 491px, as Herdr's own does, so New worktree and Open in Clocktopus stay in view: its Herdr icon, its name and the keys 1-9 in `dim`, which pick it from the keyboard. A row opens the same `worktree` dialog with `argv: <the agent's run>` and `tab: <key>`, so the new space's first tab runs that agent, with no first message, leaving what to do to whoever is at it. Last, when the task has a page, a divider and "Open in Clocktopus". The panel never runs the start-work skill itself.
 - Open in Clocktopus and the Work page button use `cx.open_url`.
 - The toggle and the hide button run `layout.toggle` / `layout.hide {id: "clocktopus-panel"}`. The node's hidden state is a layout click, so the panel stays open or closed across space switches and restarts.
+- The repository tree places each space as the panel does (its first terminal's live folder, else the folder it was made in) and asks git there once, on the space's machine: `git rev-parse --path-format=absolute --show-toplevel --git-common-dir --git-dir`. Every worktree of a repository shares its common dir, which keys the repository on that machine and names it (its folder, or a bare repository's or submodule's name without `.git`); a git dir other than the common dir marks a linked worktree. A folder's repository never changes, so a place is asked again only when git couldn't answer (a machine away), after 30 s. A space git hasn't answered for yet sits under Herdr's name for it. The branch comes live from its terminals. The tree sets `setAgentOrder` to its own order, so `agent.next` / `agent.prev` follow it.
 
 ## Built from
 
-- `layouts/clocktopus.json`: a copy of `main` (Herdr 0.1.13, `cloned_from` recorded) with two changes:
+- `layouts/clocktopus.json`: a copy of `main` (Herdr 0.1.13, `cloned_from` recorded) with three changes:
+  - the sidebar's `sidebar-lists` column (the `spaces` and `agents` blocks) becomes `{ "id": "repos", "type": "block", "min": 90, "content": { "mod": "repos" } }`;
   - the tab bar block becomes `{ "id": "tabs-row", "type": "row", "size": { "px": 42 }, "resizable": false, "children": [ the tabs block with "size": { "weight": 1 }, { "id": "clocktopus-toggle", "type": "block", "size": { "px": 128 }, "content": { "mod": "clocktopus", "props": { "role": "toggle" } } } ] }`;
   - `work-body` gains `{ "id": "clocktopus-panel", "type": "column", "size": { "px": 400 }, "min": 320, "max": 720, "children": [{ "id": "clocktopus", "type": "block", "content": { "mod": "clocktopus" } }] }`.
   - Root `"preview": "layouts/clocktopus.png"` is the picture Settings shows.
@@ -55,9 +62,10 @@ Left to right, everything as in Herdr's `main` layout, plus two blocks:
   - `main.js` holds the views: the panel by default, `props.role: "toggle"`, `"actions"` for the More actions popup, and `"taken"` for the dialog when the task already has worktrees.
   - `model.js` holds the decisions, with no Herdr imports: reading the CLI's output, matching agents to tasks, resume commands, the resumable-session script, the filter. `apps/cli/src/lib/herdr-mod.test.ts` tests it.
   - `mark.png` is the Clocktopus icon; `icons/` holds the stroke icons.
+- `mods/repos/`: `main.js` draws the tree; `model.js` holds its decisions with no Herdr imports (a place's repository, the grouping, a tab's name), tested by `apps/cli/src/lib/herdr-repos.test.ts`. Its icons are Herdr's own, from `mods/workspace-chrome/`.
 - Herdr functions: `exec` with `on`, `hc`, `readTextFile`, `home`; `spaces`, `agents`, `panes`, `focused`, `layout`; `shared` / `setShared`, `watchFolder`, `knownAgents`, `openOverlay` / `closeOverlay`, `theme`, `settings`, `props`, `nextCommand`.
-- Commands: `layout.toggle`, `layout.hide`, `pane.focus`, `tab.new`, `tab.rename`, `space.new`.
-- Programs: `clocktopus` (the Clocktopus CLI, found on the PATH or in `~/.local/bin`, mise's shims, pnpm's or npm's global folder, `/opt/homebrew/bin`, `/usr/local/bin`), `sh`, `find`, `grep`, `sed` and `kill -0` for the session check on each machine, `hc get`.
+- Commands: `layout.toggle`, `layout.hide`, `pane.focus`, `tab.new`, `tab.rename`, `tab.select`, `space.new`, `space.select`.
+- Programs: `clocktopus` (the Clocktopus CLI, found on the PATH or in `~/.local/bin`, mise's shims, pnpm's or npm's global folder, `/opt/homebrew/bin`, `/usr/local/bin`), `sh`, `find`, `grep`, `sed` and `kill -0` for the session check on each machine, `hc get`, and `git rev-parse` for the tree.
 - Network: none of its own. The CLI calls Clocktopus with its own sign-in.
 - Files read: `~/.claude/sessions/<pid>.json` for live Claude Code agents, and the session check reads those files on each machine to find running sessions; transcripts are only tested for existence.
 - Its look is Herdr's: theme tokens only, no theme or fonts of its own.
@@ -73,8 +81,9 @@ Left to right, everything as in Herdr's `main` layout, plus two blocks:
 
 ## Done when
 
-- `herdr-app check ~/.config/herdr-app/mods/clocktopus` passes.
+- `herdr-app check ~/.config/herdr-app/mods/clocktopus` and `herdr-app check ~/.config/herdr-app/mods/repos` pass.
 - `layout.switch {name: "clocktopus"}` shows the layout with no `clocktopus.error`.
+- The sidebar lists each repository once, with every space in one of its worktrees under it, each space's tabs under it, and a click on a tab shows that tab.
 - The tab bar shows Files, Changes and Clocktopus. The Clocktopus button shows the panel, and a second click hides it.
 - In a checkout of a repository linked to a Clocktopus project, the panel lists its tasks under In review, In progress and To do, with a collapsed Ready to ship above them once a task's pull request merges and a collapsed Delivered above that once a release delivers one, and a Claude Code agent on a task's branch shows on that task's row with its status.
 - Clicking that row shows the agent; Resume on a session a machine Herdr reaches has opens it in a new tab in its folder there.

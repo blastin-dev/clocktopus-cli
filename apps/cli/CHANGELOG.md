@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.16.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.15.0...cli-v0.16.0) (2026-11-26)
+
+
+### Features
+
+* **clk-131:** group the Herdr sidebar by repository, worktree and tab ([b1222e2](https://github.com/blastin-dev/clocktopus/commit/b1222e23ad9032385299b49e5cd90bf2655f49fa))
+* **clk-131:** group the Herdr sidebar by repository, worktree and tab ([b15d5ec](https://github.com/blastin-dev/clocktopus/commit/b15d5ecce7ee46c1572a8885c2b79ea5376e0bc0))
+
+
+### Bug Fixes
+
+* **clk-131:** keep unanswered places out of Other and read submodules as their own checkout ([a9f4edb](https://github.com/blastin-dev/clocktopus/commit/a9f4edba3200bf0e3e6b986976cc936c0ab4440c))
+* **clk-131:** read a submodule inside a superproject worktree as its own checkout ([3552416](https://github.com/blastin-dev/clocktopus/commit/355241608342a2391d5663021e5c3aed666a09bd))
+* **clk-131:** tell linked worktrees apart by their git dir ([4554187](https://github.com/blastin-dev/clocktopus/commit/455418791b4a4050b3119bbc2d5ca1b2df5d6328))
+
 ## [0.15.0](https://github.com/blastin-dev/clocktopus/compare/cli-v0.14.0...cli-v0.15.0) (2026-11-20)
 
 

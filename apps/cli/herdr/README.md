@@ -8,6 +8,11 @@ bring that agent into view or resume an earlier session from any machine Herdr
 reaches. Each task's More actions menu opens a new worktree for its branch, with
 a terminal or any installed agent, or the task in Clocktopus.
 
+The sidebar is one tree in place of Herdr's Spaces and Agents lists: each
+repository, its worktrees and branches (one space each), and their tabs, each
+with its agent's status. Every worktree of a repository sits under it, wherever
+its folder is.
+
 ![Herdr + Clocktopus](preview.png)
 
 It needs the Herdr desktop app (`herdr-app` 0.1.13 or newer) and the
@@ -30,9 +35,10 @@ Read ~/.config/herdr-app/AGENTS.md, then add this layout: https://github.com/bla
 Or copy it by hand, then switch to it with `ctrl-shift-l`:
 
 ```sh
-cp -r mods/clocktopus ~/.config/herdr-app/mods/
+cp -r mods/clocktopus mods/repos ~/.config/herdr-app/mods/
 cp layouts/clocktopus.json layouts/clocktopus.png ~/.config/herdr-app/layouts/
 herdr-app check ~/.config/herdr-app/mods/clocktopus
+herdr-app check ~/.config/herdr-app/mods/repos
 herdr-app do layout.switch '{"name":"clocktopus"}'
 ```
 
