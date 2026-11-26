@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/blastin-dev/clocktopus/compare/cli-contract-v0.15.0...cli-contract-v0.16.0) (2026-11-26)
+
+
+### Miscellaneous Chores
+
+* **cli-contract:** Synchronize cli versions
+
 ## [0.15.0](https://github.com/blastin-dev/clocktopus/compare/cli-contract-v0.14.0...cli-contract-v0.15.0) (2026-11-20)
 
 
