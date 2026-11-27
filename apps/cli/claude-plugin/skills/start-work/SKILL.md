@@ -185,7 +185,7 @@ describes. For a Clocktopus task (`native`), then update its summary with
 from a tracker are edited in the tracker.
 
 Then review the work with the review-work skill: it fixes what it is sure of,
-has a second model settle what is still open, and leaves the rest inline on
+has a council of models from different providers debate what is still open, and leaves the rest inline on
 the pull request, each with a recommended fix.
 
 When the repository's instructions forbid an agent committing or pushing,

@@ -384,15 +384,19 @@ one before (with `gh stack` on GitHub), while the session stays free to talk
 to you.
 
 The `review-work` skill, which `start-work` runs once the pull request is
-open, has a first reviewer read the branch's diff against its task in the
-background, through the agent's own code-review skill when it has one: the
-latest GPT Sol at high effort, or the latest Claude Sonnet when the agent
-can't run Sol. The session fixes the findings it can confirm, and a second
-model, the latest Claude Fable at medium effort, settles the findings still
-open and checks the fixes, over a few rounds. Both reviewers are subagents of
-the agent you run, on the account it already uses. Only what needs a person,
-or stays open once the rounds run out, is left as inline comments on the pull
-request, each on the line to fix with a recommended fix. It never approves,
+open, has a council of reviewers from different providers read the branch's
+diff against its task in parallel, in the background, through the agent's own
+code-review skill when it has one: the latest Claude Opus, GPT Sol and Gemini
+Neon, each at high effort. Each is a subagent of the agent you run where it
+can reach that provider, and otherwise a headless CLI you have installed and
+signed in (`claude`, `codex`, `opencode` or `agy`), on that CLI's own account
+and billing. A seat no route reaches stays empty, and the review says so. The
+session fixes the findings it can confirm, and the council debates the
+findings still open and checks the fixes, over a few rounds, until a majority
+whose evidence holds settles each one. Only what needs a person, or stays
+split once the rounds run out, is left as inline comments on the pull
+request, each on the line to fix with a recommended fix, and the review shows
+each reviewer's score out of 10 per round. It never approves,
 blocks or merges.
 
 The `refine` skill (`/clocktopus:refine BLA-12` or `/clocktopus:refine G-3` in
